@@ -5,6 +5,8 @@ import (
 
 	"github.com/supersonic-app/supersonic/backend/mediaprovider"
 	"github.com/supersonic-app/supersonic/backend/player"
+	"github.com/supersonic-app/supersonic/backend/player/common"
+	"github.com/supersonic-app/supersonic/backend/util"
 )
 
 const (
@@ -22,11 +24,24 @@ type JukeboxPlayer struct {
 	volume  int
 	seeking bool
 
+	// start playback position in seconds of the last seek/time sync
+	lastStartTime int
+	// how long the track has been playing since last time sync
+	stopwatch util.Stopwatch
+
+	trackChangeTimer common.TrackChangeTimer
+
 	curTrack           int
 	queueLength        int
 	curTrackDuration   float64
 	startTrackTime     float64
 	startedAtUnixMilli int64
+}
+
+func NewJukeboxPlayer(provider mediaprovider.JukeboxProvider) (*JukeboxPlayer, error) {
+	j := &JukeboxPlayer{provider: provider}
+	j.trackChangeTimer = common.NewTrackChangeTimer(j.handleOnTrackChange)
+	return j, nil
 }
 
 func (j *JukeboxPlayer) SetVolume(vol int) error {
@@ -125,20 +140,41 @@ func (j *JukeboxPlayer) IsSeeking() bool {
 
 func (j *JukeboxPlayer) GetStatus() player.Status {
 	state := player.Stopped
-	if j.state == playing {
+	switch j.state {
+	case playing:
 		state = player.Playing
-	} else if j.state == paused {
+	case paused:
 		state = player.Paused
 	}
 
-	// TODO - the rest
-
 	return player.Status{
-		State: state,
+		State:   state,
+		TimePos: j.curPlayPos().Seconds(),
+		//Duration: TODO
 	}
 }
 
+func (j *JukeboxPlayer) curPlayPos() time.Duration {
+	return time.Duration(j.lastStartTime)*time.Second + j.stopwatch.Elapsed()
+}
+
 func (j *JukeboxPlayer) Destroy() {}
+
+func (j *JukeboxPlayer) handleOnTrackChange() {
+	stopping := false
+	// TODO: is playing next track?
+
+	if stopping {
+		j.lastStartTime = 0
+		j.stopwatch.Reset()
+	} else {
+		j.lastStartTime = 0
+		j.stopwatch.Reset()
+		j.stopwatch.Start()
+		j.trackChangeTimer.Reset(0 /*TODO: next track time*/)
+		j.InvokeOnTrackChange()
+	}
+}
 
 func (j *JukeboxPlayer) startAndUpdateTime() error {
 	beforeStart := time.Now()
