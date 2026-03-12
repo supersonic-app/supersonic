@@ -41,6 +41,7 @@ type SettingsDialog struct {
 	OnEqualizerSettingsChanged     func()
 	OnPageNeedsRefresh             func()
 	OnClearCaches                  func()
+	OnHidePlayedQueueTracksChanged func()
 
 	config          *backend.Config
 	audioDevices    []mpv.AudioDevice
@@ -210,6 +211,13 @@ func (s *SettingsDialog) createGeneralTab(canSaveQueueToServer bool) *container.
 
 	trackNotif := widget.NewCheckWithData(lang.L("Show notification on track change"),
 		binding.BindBool(&s.config.Application.ShowTrackChangeNotification))
+	hidePlayedTracks := widget.NewCheck(lang.L("Hide already-played tracks in play queue"), func(b bool) {
+		s.config.Application.HidePlayedQueueTracks = b
+		if s.OnHidePlayedQueueTracksChanged != nil {
+			s.OnHidePlayedQueueTracksChanged()
+		}
+	})
+	hidePlayedTracks.Checked = s.config.Application.HidePlayedQueueTracks
 	albumGridYears := widget.NewCheck(lang.L("Show year in album grid and now playing"), func(b bool) {
 		s.config.AlbumsPage.ShowYears = b
 		s.config.FavoritesPage.ShowAlbumYears = b
@@ -307,6 +315,7 @@ func (s *SettingsDialog) createGeneralTab(canSaveQueueToServer bool) *container.
 		container.NewHBox(systemTrayEnable, closeToTray),
 		saveQueueHBox,
 		trackNotif,
+		hidePlayedTracks,
 		albumGridYears,
 		s.newSectionSeparator(),
 

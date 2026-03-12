@@ -74,7 +74,7 @@ func NewMainWindow(fyneApp fyne.App, appName, displayAppName, appVersion string,
 	}
 	m.Controller = controller.New(app, appVersion, m.Window)
 	m.BrowsingPane = browsing.NewBrowsingPane(app.PlaybackManager, m.Controller, func() { m.Router.NavigateTo(m.StartupPage()) })
-	m.Sidebar = NewSidebar(m.Controller, m.App.PlaybackManager, m.App.ImageManager, m.App.LyricsManager)
+	m.Sidebar = NewSidebar(m.Controller, m.App.PlaybackManager, m.App.ImageManager, m.App.LyricsManager, &m.App.Config.Application)
 	if m.App.Config.Application.SidebarTab == "Lyrics" {
 		m.Sidebar.SetSelectedIndex(1)
 	}
@@ -121,7 +121,9 @@ func NewMainWindow(fyneApp fyne.App, appName, displayAppName, appVersion string,
 		})
 	})
 	app.PlaybackManager.OnQueueChange(func() {
-		fyne.Do(func() { m.Sidebar.SetQueueTracks(app.PlaybackManager.GetActivePlayQueue()) })
+		fyne.Do(func() {
+			m.Sidebar.SetQueueTracks(app.PlaybackManager.GetActivePlayQueue(), app.PlaybackManager.NowPlayingIndex())
+		})
 	})
 	app.ServerManager.OnServerConnected(func(conf *backend.ServerConfig) {
 		go m.RunOnServerConnectedTasks(conf, app, displayAppName)
@@ -199,12 +201,12 @@ func NewMainWindow(fyneApp fyne.App, appName, displayAppName, appVersion string,
 func (m *MainWindow) UpdateOnTrackChange(item mediaprovider.MediaItem) {
 	if item == nil {
 		m.Window.SetTitle(res.DisplayName)
-		m.Sidebar.SetNowPlaying(nil)
+		m.Sidebar.SetNowPlaying(nil, -1)
 		return
 	}
 
 	meta := item.Metadata()
-	m.Sidebar.SetNowPlaying(item)
+	m.Sidebar.SetNowPlaying(item, m.App.PlaybackManager.NowPlayingIndex())
 	artistDisp := ""
 	if tr, ok := item.(*mediaprovider.Track); ok {
 		artistDisp = " – " + strings.Join(tr.ArtistNames, ", ")
