@@ -187,6 +187,10 @@ func (p *PlayQueueList) Scroll(amount float32) {
 	p.list.ScrollToOffset(p.list.GetScrollOffset() + amount)
 }
 
+func (p *PlayQueueList) ScrollToOffset(offset float32) {
+	p.list.ScrollToOffset(offset)
+}
+
 func (p *PlayQueueList) ScrollToNowPlaying() {
 	idx := slices.IndexFunc(p.items, func(item *util.TrackListModel) bool {
 		return item.Item.Metadata().ID == p.nowPlayingID
