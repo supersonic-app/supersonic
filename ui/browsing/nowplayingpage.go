@@ -298,6 +298,13 @@ func (a *NowPlayingPage) OnSongChange(song mediaprovider.MediaItem, lastScrobble
 		a.imageLoadCancel()
 	}
 	a.nowPlayingID = sharedutil.MediaItemIDOrEmptyStr(song)
+
+	// Re-apply queue filter since the playing index changed
+	nowIdx := a.pm.NowPlayingIndex()
+	displayQueue, offset := util.FilterQueueForHidePlayed(a.queue, nowIdx, a.cfg.Application.HidePlayedQueueTracks)
+	a.queueList.SetPlayIndexOffset(offset)
+	a.queueList.SetItems(displayQueue)
+
 	a.queueList.SetNowPlaying(a.nowPlayingID)
 	if !a.alreadyLoaded {
 		a.queueList.ScrollToNowPlaying()
@@ -481,7 +488,10 @@ func (a *NowPlayingPage) Reload() {
 	a.relatedList.DisableSharing = !a.canShare
 
 	a.queue = a.pm.GetActivePlayQueue()
-	a.queueList.SetItems(a.queue)
+	nowIdx := a.pm.NowPlayingIndex()
+	displayQueue, offset := util.FilterQueueForHidePlayed(a.queue, nowIdx, a.cfg.Application.HidePlayedQueueTracks)
+	a.queueList.SetPlayIndexOffset(offset)
+	a.queueList.SetItems(displayQueue)
 	a.totalTime = 0.0
 	for _, tr := range a.queue {
 		a.totalTime += tr.Metadata().Duration.Seconds()
