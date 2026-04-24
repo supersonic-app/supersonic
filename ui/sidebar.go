@@ -89,8 +89,8 @@ func (s *Sidebar) SetSelectedIndex(idx int) {
 // applyQueueItems applies the hide-played filter to the queue.
 func (s *Sidebar) applyQueueItems() {
 	displayItems, offset := util.FilterQueueForHidePlayed(s.allQueueItems, s.nowPlayingIdx, s.config.HidePlayedQueueTracks)
-	s.queueList.SetItems(displayItems)
 	s.queueList.SetPlayIndexOffset(offset)
+	s.queueList.SetItems(displayItems)
 }
 
 func (s *Sidebar) SetQueueTracks(items []mediaprovider.MediaItem, nowPlayingIdx int) {
