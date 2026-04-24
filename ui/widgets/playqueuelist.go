@@ -104,7 +104,7 @@ func NewPlayQueueList(im *backend.ImageManager, useNonQueueMenu bool) *PlayQueue
 			if tr.trackID != model.Item.Metadata().ID || tr.ListItemID != itemID {
 				tr.ListItemID = itemID
 			}
-			tr.Update(model, itemID+1)
+			tr.Update(model, itemID+1+p.playIndexOffset)
 		},
 	)
 	p.list.OnDragBegin = func(id int) {
