@@ -61,6 +61,7 @@ type Controller struct {
 	popUpQueue         *widget.PopUp
 	popUpQueueList     *widgets.PlayQueueList
 	pauseAfterCurrent  *widget.Check
+	hidePlayedTracks   *widget.Check
 	popUpQueueLastUsed int64
 	escapablePopUp     fyne.CanvasObject
 	haveModal          bool
@@ -212,7 +213,12 @@ func (m *Controller) ShowPopUpPlayQueue() {
 		m.pauseAfterCurrent = widget.NewCheck(lang.L("Pause after current track"), func(b bool) {
 			m.App.PlaybackManager.SetPauseAfterCurrent(b)
 		})
-		bottomRow := container.NewHBox(layout.NewSpacer(), m.pauseAfterCurrent)
+		m.hidePlayedTracks = widget.NewCheck(lang.L("Hide played tracks"), func(b bool) {
+			m.App.Config.Application.HidePlayedQueueTracks = b
+			m.applyPopUpQueueItems()
+			m.App.PlaybackManager.TriggerQueueChangeCallback()
+		})
+		bottomRow := container.NewHBox(layout.NewSpacer(), m.hidePlayedTracks, m.pauseAfterCurrent)
 		ctr := container.NewBorder(title, bottomRow, nil, nil,
 			container.NewPadded(m.popUpQueueList),
 		)
@@ -243,6 +249,7 @@ func (m *Controller) ShowPopUpPlayQueue() {
 						m.popUpQueue = nil
 						m.popUpQueueList = nil
 						m.pauseAfterCurrent = nil
+						m.hidePlayedTracks = nil
 						m.popUpQueueLastUsed = 0
 						t.Stop()
 						return
@@ -275,6 +282,7 @@ func (m *Controller) ShowPopUpPlayQueue() {
 	pop.Resize(size)
 	popUpQueueList.ScrollToNowPlaying() // must come after resize
 	m.pauseAfterCurrent.SetChecked(m.App.PlaybackManager.IsPauseAfterCurrent())
+	m.hidePlayedTracks.SetChecked(m.App.Config.Application.HidePlayedQueueTracks)
 	pop.ShowAtPosition(fyne.NewPos(
 		canvasSize.Width-size.Width-10,
 		canvasSize.Height-size.Height-100,
