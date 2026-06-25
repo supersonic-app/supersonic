@@ -9,6 +9,7 @@ import (
 	"os"
 	"runtime"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/supersonic-app/supersonic/backend"
@@ -71,16 +72,47 @@ func main() {
 	lIdx := slices.IndexFunc(res.TranslationsInfo, func(t res.TranslationInfo) bool {
 		return t.Name == myApp.Config.Application.Language
 	})
+
 	success := false
 	if lIdx >= 0 {
 		tr := res.TranslationsInfo[lIdx]
 		content, err := res.Translations.ReadFile("translations/" + tr.TranslationFileName)
 		if err == nil {
-			// "trick" Fyne into loading translations for configured language
-			// by pretending it's the translation for the system locale
-			name := lang.SystemLocale().LanguageString()
-			lang.AddTranslations(fyne.NewStaticResource(name+".json", content))
+			sysLocale := lang.SystemLocale().LanguageString()
+			_ = lang.AddTranslationsForLocale(content, fyne.Locale(sysLocale))
 			success = true
+
+			// Also register under the explicit BCP47 locale so go-i18n's matcher
+			// correctly resolves queries (e.g. "zh" matches "zh-Hans" for Chinese)
+			if tr.BCP47Locale != "" && tr.BCP47Locale != sysLocale {
+				_ = lang.AddTranslationsForLocale(content, fyne.Locale(tr.BCP47Locale))
+			}
+
+			// Fyne's localeFromTag produces "language-region-script" (e.g. "zh-CN-Hans")
+			// or "language-region" (e.g. "zh-CN"). LanguageString strips script info,
+			// but Fyne's built-in uses "language-script" tags (e.g. "zh-Hans" from
+			// base.zh_Hans.json). The localizer may match the built-in script tag, so
+			// we also register under any known script-variant locale for the system's
+			// base language so our content merges with Fyne's built-in translations.
+			raw := lang.SystemLocale().String()
+			baseLang := raw
+			if idx := strings.IndexByte(raw, '-'); idx >= 0 {
+				baseLang = raw[:idx]
+			}
+			for _, ti := range res.TranslationsInfo {
+				if ti.BCP47Locale == "" || ti.BCP47Locale == tr.BCP47Locale {
+					continue
+				}
+				bcpparts := strings.Split(ti.BCP47Locale, "-")
+				if len(bcpparts) >= 2 && bcpparts[0] == baseLang {
+					script := bcpparts[1]
+					// BCP47 script codes are 4-letter with uppercase first letter
+					if len(script) == 4 && script[0] >= 'A' && script[0] <= 'Z' && ti.BCP47Locale != sysLocale {
+						_ = lang.AddTranslationsForLocale(content, fyne.Locale(ti.BCP47Locale))
+					}
+				}
+			}
+
 		} else {
 			log.Printf("Error loading translation file %s: %s\n", tr.TranslationFileName, err.Error())
 		}
@@ -88,6 +120,19 @@ func main() {
 	if !success {
 		if err := lang.AddTranslationsFS(res.Translations, "translations"); err != nil {
 			log.Printf("Error loading translations: %s", err.Error())
+		}
+		// Some translation filenames are not valid BCP47 tags
+		// (e.g. "zhHans.json" → locale "zhHans" → language.Make returns "und").
+		// Re-register them under their canonical BCP47 locale so Fyne's i18n
+		// matcher can find them.
+		for _, tr := range res.TranslationsInfo {
+			if tr.BCP47Locale != "" && tr.BCP47Locale != tr.Name {
+				content, err := res.Translations.ReadFile("translations/" + tr.TranslationFileName)
+				if err == nil {
+					log.Println("[i18n] re-registering", tr.Name, "as", tr.BCP47Locale)
+					_ = lang.AddTranslationsForLocale(content, fyne.Locale(tr.BCP47Locale))
+				}
+			}
 		}
 	}
 
