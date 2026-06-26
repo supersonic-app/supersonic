@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -187,6 +188,7 @@ func (s *ServerManager) connect(connection ServerConnection, password string) (m
 		connection.Hostname = NormalizeServerURL(connection.Hostname)
 		connection.AltHostname = NormalizeServerURL(connection.AltHostname)
 	}
+	httpProxy := resolveHTTPProxy(s.config.LocalPlayback)
 
 	if connection.ServerType == ServerTypeJellyfin {
 		client, err := jellyfin.NewClient(connection.Hostname, res.AppName, res.AppVersion, jellyfin.WithTimeout(timeout))
@@ -194,7 +196,7 @@ func (s *ServerManager) connect(connection ServerConnection, password string) (m
 			log.Printf("error creating Jellyfin client: %s", err.Error())
 			return nil, err
 		}
-		s.checkSetInsecureSkipVerify(connection.SkipSSLVerify, client.HTTPClient)
+		applyTransportSettings(client.HTTPClient, httpProxy, connection.SkipSSLVerify)
 		cli = &jellyfinMP.JellyfinServer{
 			Client: *client,
 		}
@@ -205,7 +207,7 @@ func (s *ServerManager) connect(connection ServerConnection, password string) (m
 				log.Printf("error creating Jellyfin alternative client: %s", err.Error())
 				return nil, err
 			}
-			s.checkSetInsecureSkipVerify(connection.SkipSSLVerify, altClient.HTTPClient)
+			applyTransportSettings(altClient.HTTPClient, httpProxy, connection.SkipSSLVerify)
 			altCli = &jellyfinMP.JellyfinServer{
 				Client: *altClient,
 			}
@@ -215,7 +217,7 @@ func (s *ServerManager) connect(connection ServerConnection, password string) (m
 		cli = &subsonicMP.SubsonicServer{
 			Client: subsonic.Client{
 				UserAgent:    ua,
-				Client:       &http.Client{Timeout: timeout},
+				Client:       newHTTPClient(timeout, httpProxy, connection.SkipSSLVerify),
 				BaseUrl:      connection.Hostname,
 				User:         connection.Username,
 				PasswordAuth: connection.LegacyAuth,
@@ -223,11 +225,10 @@ func (s *ServerManager) connect(connection ServerConnection, password string) (m
 				UseJSON:      true,
 			},
 		}
-		s.checkSetInsecureSkipVerify(connection.SkipSSLVerify, cli.(*subsonicMP.SubsonicServer).Client.Client)
 		altCli = &subsonicMP.SubsonicServer{
 			Client: subsonic.Client{
 				UserAgent:    ua,
-				Client:       &http.Client{Timeout: timeout},
+				Client:       newHTTPClient(timeout, httpProxy, connection.SkipSSLVerify),
 				BaseUrl:      connection.AltHostname,
 				User:         connection.Username,
 				PasswordAuth: connection.LegacyAuth,
@@ -235,7 +236,6 @@ func (s *ServerManager) connect(connection ServerConnection, password string) (m
 				UseJSON:      true,
 			},
 		}
-		s.checkSetInsecureSkipVerify(connection.SkipSSLVerify, altCli.(*subsonicMP.SubsonicServer).Client.Client)
 	}
 
 	// struct to return hostname type in isAlt and connection success on err
@@ -282,12 +282,37 @@ func (s *ServerManager) connect(connection ServerConnection, password string) (m
 	}
 }
 
-func (s *ServerManager) checkSetInsecureSkipVerify(skip bool, cli *http.Client) {
-	if skip {
-		cli.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+func newHTTPClient(timeout time.Duration, proxyURL string, skipSSLVerify bool) *http.Client {
+	client := &http.Client{Timeout: timeout}
+	applyTransportSettings(client, proxyURL, skipSSLVerify)
+	return client
+}
+
+func applyTransportSettings(cli *http.Client, proxyURL string, skipSSLVerify bool) {
+	var transport *http.Transport
+	if cli.Transport != nil {
+		if t, ok := cli.Transport.(*http.Transport); ok {
+			transport = t.Clone()
+		} else {
+			transport = http.DefaultTransport.(*http.Transport).Clone()
+		}
+	} else {
+		transport = http.DefaultTransport.(*http.Transport).Clone()
+	}
+
+	if proxyURL != "" {
+		proxy, err := url.Parse(proxyURL)
+		if err != nil {
+			log.Printf("Warning: invalid proxy URL %q, ignoring proxy: %s", redactProxyURL(proxyURL), err.Error())
+		} else {
+			transport.Proxy = http.ProxyURL(proxy)
+			log.Printf("Setting API client proxy: %s", redactProxyURL(proxyURL))
 		}
 	}
+	if skipSSLVerify {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+	cli.Transport = transport
 }
 
 func (a *ServerManager) GetServer() mediaprovider.MediaProvider {

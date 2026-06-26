@@ -143,6 +143,7 @@ type LocalPlaybackConfig struct {
 	AutoEQProfilePath     string // Path to applied AutoEQ profile (e.g., "oratory1990/over-ear/Sennheiser HD 650")
 	AutoEQProfileName     string // Display name of applied profile (e.g., "Sennheiser HD 650")
 	PauseFade             bool
+	HTTPProxy             string // HTTP/HTTPS proxy URL with optional auth (http://user:pass@proxy:8080)
 }
 
 type ScrobbleConfig struct {
