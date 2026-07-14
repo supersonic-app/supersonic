@@ -17,7 +17,7 @@ func TestResolveHTTPProxy(t *testing.T) {
 	// Test case 1: No proxy set
 	os.Unsetenv("https_proxy")
 	os.Unsetenv("HTTPS_PROXY")
-	
+
 	cfg := LocalPlaybackConfig{}
 	if proxy := resolveHTTPProxy(cfg); proxy != "" {
 		t.Errorf("Test 1: Expected empty proxy, got '%s'", proxy)

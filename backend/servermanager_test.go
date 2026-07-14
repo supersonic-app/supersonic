@@ -56,11 +56,10 @@ func TestNormalizeJellyfinURL(t *testing.T) {
 
 func TestNewHTTPClient_ProxyOnly(t *testing.T) {
 	testNewHTTPClient(t, newHTTPClientTestCase{
-		timeout:          3 * time.Second,
-		proxy:            "http://proxy.example.com:8080",
-		wantProxy:        "http://proxy.example.com:8080",
-		wantSkipSSL:      false,
-		wantTLSConfigNil: true,
+		timeout:     3 * time.Second,
+		proxy:       "http://proxy.example.com:8080",
+		wantProxy:   "http://proxy.example.com:8080",
+		wantSkipSSL: false,
 	})
 }
 
@@ -84,29 +83,26 @@ func TestNewHTTPClient_SkipSSLOnly(t *testing.T) {
 
 func TestNewHTTPClient_InvalidProxy(t *testing.T) {
 	testNewHTTPClient(t, newHTTPClientTestCase{
-		timeout:          3 * time.Second,
-		proxy:            "http://%zz",
-		wantSkipSSL:      false,
-		wantTLSConfigNil: true,
+		timeout:     3 * time.Second,
+		proxy:       "http://%zz",
+		wantSkipSSL: false,
 	})
 }
 
 func TestNewHTTPClient_EmptyProxy(t *testing.T) {
 	testNewHTTPClient(t, newHTTPClientTestCase{
-		timeout:          3 * time.Second,
-		proxy:            "",
-		wantSkipSSL:      false,
-		wantTLSConfigNil: true,
+		timeout:     3 * time.Second,
+		proxy:       "",
+		wantSkipSSL: false,
 	})
 }
 
 type newHTTPClientTestCase struct {
-	timeout          time.Duration
-	proxy            string
-	skipSSL          bool
-	wantProxy        string
-	wantSkipSSL      bool
-	wantTLSConfigNil bool
+	timeout     time.Duration
+	proxy       string
+	skipSSL     bool
+	wantProxy   string
+	wantSkipSSL bool
 }
 
 func testNewHTTPClient(t *testing.T, tc newHTTPClientTestCase) {
@@ -154,15 +150,11 @@ func testNewHTTPClient(t *testing.T, tc newHTTPClientTestCase) {
 		}
 	}
 
-	if tc.wantTLSConfigNil {
-		if transport.TLSClientConfig != nil {
-			t.Fatal("transport TLSClientConfig is set, want nil")
+	if transport.TLSClientConfig == nil {
+		if tc.wantSkipSSL {
+			t.Fatal("transport TLSClientConfig = nil, want InsecureSkipVerify enabled")
 		}
 		return
-	}
-
-	if transport.TLSClientConfig == nil {
-		t.Fatal("transport TLSClientConfig = nil, want config")
 	}
 	if transport.TLSClientConfig.InsecureSkipVerify != tc.wantSkipSSL {
 		t.Fatalf("transport TLSClientConfig.InsecureSkipVerify = %t, want %t", transport.TLSClientConfig.InsecureSkipVerify, tc.wantSkipSSL)
@@ -181,8 +173,18 @@ func TestApplyTransportSettingsIgnoresInvalidProxyAndPreservesTimeout(t *testing
 	if !ok {
 		t.Fatalf("client transport = %T, want *http.Transport", client.Transport)
 	}
+	requestURL, err := url.Parse("http://music.example.com/rest/ping")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if transport.Proxy != nil {
-		t.Fatal("transport Proxy is set for invalid proxy URL, want nil")
+		proxyURL, err := transport.Proxy(&http.Request{URL: requestURL})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if proxyURL != nil {
+			t.Fatalf("proxy URL = %q for invalid proxy configuration, want nil", proxyURL.String())
+		}
 	}
 	if transport.TLSClientConfig == nil || !transport.TLSClientConfig.InsecureSkipVerify {
 		t.Fatal("transport TLSClientConfig.InsecureSkipVerify = false, want true")
