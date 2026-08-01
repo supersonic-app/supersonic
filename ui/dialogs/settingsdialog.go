@@ -12,7 +12,7 @@ import (
 	"unicode"
 
 	"github.com/dweymouth/supersonic/backend"
-	"github.com/dweymouth/supersonic/backend/player/mpv"
+	"github.com/dweymouth/supersonic/backend/player"
 	"github.com/dweymouth/supersonic/res"
 	myTheme "github.com/dweymouth/supersonic/ui/theme"
 	"github.com/dweymouth/supersonic/ui/util"
@@ -43,7 +43,7 @@ type SettingsDialog struct {
 	OnClearCaches                  func()
 
 	config          *backend.Config
-	audioDevices    []mpv.AudioDevice
+	audioDevices    []player.AudioDevice
 	themeFiles      map[string]string // filename -> displayName
 	promptText      *widget.RichText
 	eqPresetManager *backend.EQPresetManager
@@ -62,10 +62,9 @@ type ToastProvider interface {
 	ShowErrorToast(message string)
 }
 
-// TODO: having this depend on the mpv package for the AudioDevice type is kinda gross. Refactor.
 func NewSettingsDialog(
 	config *backend.Config,
-	audioDeviceList []mpv.AudioDevice,
+	audioDeviceList []player.AudioDevice,
 	themeFileList map[string]string,
 	equalizerBands []string,
 	clientDecidesScrobble bool,

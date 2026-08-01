@@ -992,8 +992,8 @@ func (p *playbackEngine) setTrack(idx int, next bool, startTime float64) error {
 					url = filepath
 				}
 			}
-			if mpvP, ok := p.player.(*mpv.Player); ok && !isTrack {
-				mpvP.ObserveIcyRadioTitle(func(icytitle string) {
+			if lpP, ok := p.player.(player.LocalPlayer); ok && !isTrack {
+				lpP.ObserveIcyRadioTitle(func(icytitle string) {
 					var title, artist string
 					if s := strings.Split(icytitle, " - "); len(s) == 2 {
 						title, artist = s[1], s[0]
@@ -1005,7 +1005,7 @@ func (p *playbackEngine) setTrack(idx int, next bool, startTime float64) error {
 					}
 				})
 			} else if ok {
-				mpvP.UnobserveIcyRadioTitle()
+				lpP.UnobserveIcyRadioTitle()
 			}
 			if url == "" {
 				return errors.New("no stream URL")
@@ -1148,6 +1148,10 @@ func (pm *playbackEngine) invokeNoArgCallbacks(cbs []func()) {
 }
 
 func (p *playbackEngine) startPollTimePos() {
+	if p.cancelPollPos != nil {
+		return // already polling
+	}
+
 	ctx, cancel := context.WithCancel(p.ctx)
 	p.cancelPollPos = cancel
 	pollFrequency := 250 * time.Millisecond

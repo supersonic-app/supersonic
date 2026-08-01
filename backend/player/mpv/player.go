@@ -18,38 +18,14 @@ import (
 // Error returned by many Player functions if called before the player has not been initialized.
 var ErrUnitialized error = errors.New("mpv player uninitialized")
 
-// Information about a specific audio device.
-// Returned by ListAudioDevices.
-type AudioDevice struct {
-	// The name of the audio device.
-	// This is the string to pass to SetAudioDevice.
-	Name string
+// AudioDevice and MediaInfo are now in the parent player package.
+// Type aliases are provided for backwards compatibility.
+type (
+	AudioDevice = player.AudioDevice
+	MediaInfo   = player.MediaInfo
+)
 
-	// The description of the audio device.
-	// This is the friendly string that should be used in UIs.
-	Description string
-}
-
-// Media information about the currently playing media.
-type MediaInfo struct {
-	// The sample format as string. This uses the same names as used in other places of mpv.
-	// NOTE: this is the format that the decoder outputs, NOT necessarily the format of the file.
-	Format string
-
-	// Audio samplerate.
-	Samplerate int
-
-	// The number of channels.
-	ChannelCount int
-
-	// The audio codec.
-	Codec string
-
-	// The average bit rate in bits per second.
-	Bitrate int
-}
-
-var _ player.URLPlayer = (*Player)(nil)
+var _ player.LocalPlayer = (*Player)(nil)
 
 // Player encapsulates the mpv instance and provides functions
 // to control it and to check its status.
@@ -430,7 +406,6 @@ func (p *Player) GetMediaInfo() (MediaInfo, error) {
 		return info, err
 	}
 	nodeMap := n.(*mpv.Node).Data.(map[string]*mpv.Node)
-	info.Format = nodeMap["format"].Data.(string)
 	info.Samplerate = int(nodeMap["samplerate"].Data.(int64))
 	info.ChannelCount = int(nodeMap["channel-count"].Data.(int64))
 

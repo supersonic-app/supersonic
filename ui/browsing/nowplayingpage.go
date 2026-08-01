@@ -15,7 +15,6 @@ import (
 	"github.com/dweymouth/supersonic/backend"
 	"github.com/dweymouth/supersonic/backend/mediaprovider"
 	"github.com/dweymouth/supersonic/backend/player"
-	"github.com/dweymouth/supersonic/backend/player/mpv"
 	"github.com/dweymouth/supersonic/sharedutil"
 	"github.com/dweymouth/supersonic/ui/controller"
 	"github.com/dweymouth/supersonic/ui/layouts"
@@ -67,6 +66,9 @@ type NowPlayingPage struct {
 	// cancel funcs for background fetch tasks
 	imageLoadCancel    context.CancelFunc
 	relatedFetchCancel context.CancelFunc
+
+	formatStatusLineOddCall         bool
+	formatStatusLineMediaInfoCached string
 }
 
 type nowPlayingPageState struct {
@@ -573,6 +575,8 @@ func (a *NowPlayingPage) saveSelectedTab(tabNum int) {
 }
 
 func (a *NowPlayingPage) formatStatusLine() {
+	defer func() { a.formatStatusLineOddCall = !a.formatStatusLineOddCall }()
+
 	curPlayer := a.pm.CurrentPlayer()
 	playerStats := a.pm.PlaybackStatus()
 	lastStatus := a.statusLabel.Text
@@ -600,10 +604,10 @@ func (a *NowPlayingPage) formatStatusLine() {
 	status := fmt.Sprintf("%s (%d/%d)%s · %s: %s", state, trackNum,
 		len(a.queue), statusSuffix, lang.L("Total time"), util.SecondsToTimeString(a.totalTime))
 
-	mediaInfo := ""
-	if state != stopped {
-		mediaInfo = a.formatMediaInfoStr(curPlayer)
+	if state != stopped && a.formatStatusLineOddCall {
+		a.formatStatusLineMediaInfoCached = a.formatMediaInfoStr(curPlayer)
 	}
+	mediaInfo := a.formatStatusLineMediaInfoCached
 	if mediaInfo != "" {
 		mediaInfo = " | " + mediaInfo
 	}
@@ -614,12 +618,12 @@ func (a *NowPlayingPage) formatStatusLine() {
 	}
 }
 
-func (a *NowPlayingPage) formatMediaInfoStr(player player.BasePlayer) string {
-	mpv, ok := player.(*mpv.Player)
+func (a *NowPlayingPage) formatMediaInfoStr(p player.BasePlayer) string {
+	lp, ok := p.(player.LocalPlayer)
 	if !ok {
 		return ""
 	}
-	audioInfo, err := mpv.GetMediaInfo()
+	audioInfo, err := lp.GetMediaInfo()
 	if err != nil {
 		log.Printf("error getting playback status: %s", err.Error())
 		return ""

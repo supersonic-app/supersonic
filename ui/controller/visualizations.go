@@ -7,7 +7,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/lang"
 	"github.com/dweymouth/supersonic/backend/player"
-	"github.com/dweymouth/supersonic/backend/player/mpv"
 	"github.com/dweymouth/supersonic/ui/shortcuts"
 	myTheme "github.com/dweymouth/supersonic/ui/theme"
 	"github.com/dweymouth/supersonic/ui/util"
@@ -26,7 +25,7 @@ func (c *Controller) initVisualizations() {
 	c.App.PlaybackManager.OnStopped(c.stopVisualizationAnim)
 	c.App.PlaybackManager.OnPaused(c.stopVisualizationAnim)
 	c.App.PlaybackManager.OnPlaying(func() {
-		if _, ok := c.App.PlaybackManager.CurrentPlayer().(*mpv.Player); ok {
+		if _, ok := c.App.PlaybackManager.CurrentPlayer().(player.LocalPlayer); ok {
 			if c.peakMeter != nil {
 				c.startVisualizationAnim()
 			}
