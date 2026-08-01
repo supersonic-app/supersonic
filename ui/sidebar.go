@@ -9,30 +9,37 @@ import (
 	"github.com/dweymouth/supersonic/backend/mediaprovider"
 	"github.com/dweymouth/supersonic/ui/controller"
 	"github.com/dweymouth/supersonic/ui/theme"
+	"github.com/dweymouth/supersonic/ui/util"
 	"github.com/dweymouth/supersonic/ui/widgets"
 )
 
 type Sidebar struct {
 	widget.BaseWidget
 
-	lm *backend.LyricsManager
+	lm     *backend.LyricsManager
+	config *backend.AppConfig
 
 	queueList     *widgets.PlayQueueList
 	lyricsViewer  *widgets.LyricsViewer
 	lyricsLoading *widgets.LoadingDots
 	tabs          *container.AppTabs
 
-	nowPlaying   mediaprovider.MediaItem
-	nowPlayingID string
-	curLyrics    *mediaprovider.Lyrics
-	curLyricsID  string
-	lastPlayPos  float64
+	nowPlaying    mediaprovider.MediaItem
+	nowPlayingID  string
+	nowPlayingIdx int
+	allQueueItems []mediaprovider.MediaItem
+
+	curLyrics   *mediaprovider.Lyrics
+	curLyricsID string
+	lastPlayPos float64
 }
 
-func NewSidebar(contr *controller.Controller, pm *backend.PlaybackManager, im *backend.ImageManager, lm *backend.LyricsManager) *Sidebar {
+func NewSidebar(contr *controller.Controller, pm *backend.PlaybackManager, im *backend.ImageManager, lm *backend.LyricsManager, config *backend.AppConfig) *Sidebar {
 	s := &Sidebar{
-		lm:        lm,
-		queueList: widgets.NewPlayQueueList(im, false),
+		lm:            lm,
+		config:        config,
+		queueList:     widgets.NewPlayQueueList(im, false),
+		nowPlayingIdx: -1,
 	}
 	s.queueList.Reorderable = true
 	contr.ConnectPlayQueuelistActions(s.queueList)
@@ -79,16 +86,28 @@ func (s *Sidebar) SetSelectedIndex(idx int) {
 	s.tabs.SelectIndex(idx)
 }
 
-func (s *Sidebar) SetQueueTracks(items []mediaprovider.MediaItem) {
-	s.queueList.SetItems(items)
+// applyQueueItems applies the hide-played filter to the queue.
+func (s *Sidebar) applyQueueItems() {
+	displayItems, offset := util.FilterQueueForHidePlayed(s.allQueueItems, s.nowPlayingIdx, s.config.HidePlayedQueueTracks)
+	s.queueList.SetPlayIndexOffset(offset)
+	s.queueList.SetItems(displayItems)
 }
 
-func (s *Sidebar) SetNowPlaying(item mediaprovider.MediaItem) {
+func (s *Sidebar) SetQueueTracks(items []mediaprovider.MediaItem, nowPlayingIdx int) {
+	s.allQueueItems = items
+	s.nowPlayingIdx = nowPlayingIdx
+	s.applyQueueItems()
+}
+
+func (s *Sidebar) SetNowPlaying(item mediaprovider.MediaItem, nowPlayingIdx int) {
 	s.nowPlaying = item
+	s.nowPlayingIdx = nowPlayingIdx
 	id := ""
 	if item != nil {
 		id = item.Metadata().ID
 	}
+	// Re-filter the queue whenever the playing track changes
+	s.applyQueueItems()
 	s.queueList.SetNowPlaying(id)
 	s.nowPlayingID = id
 	if s.tabs.SelectedIndex() == 1 /*lyrics*/ {

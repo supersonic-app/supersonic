@@ -60,10 +60,11 @@ type PlayQueueList struct {
 
 	nowPlayingID string
 
-	list        *FocusList
-	colLayout   *layouts.ColumnsLayout
-	tracksMutex sync.RWMutex
-	items       []*util.TrackListModel
+	list            *FocusList
+	colLayout       *layouts.ColumnsLayout
+	tracksMutex     sync.RWMutex
+	items           []*util.TrackListModel
+	playIndexOffset int // offset to add to visual row index when calling OnPlayItemAt
 }
 
 func NewPlayQueueList(im *backend.ImageManager, useNonQueueMenu bool) *PlayQueueList {
@@ -103,7 +104,7 @@ func NewPlayQueueList(im *backend.ImageManager, useNonQueueMenu bool) *PlayQueue
 			if tr.trackID != model.Item.Metadata().ID || tr.ListItemID != itemID {
 				tr.ListItemID = itemID
 			}
-			tr.Update(model, itemID+1)
+			tr.Update(model, itemID+1+p.playIndexOffset)
 		},
 	)
 	p.list.OnDragBegin = func(id int) {
@@ -114,11 +115,20 @@ func NewPlayQueueList(im *backend.ImageManager, useNonQueueMenu bool) *PlayQueue
 	}
 	p.list.OnDragEnd = func(dragged, insertPos int) {
 		if p.OnReorderItems != nil {
-			p.OnReorderItems(p.selectedIdxs(), insertPos)
+			idxs := p.selectedIdxs()
+			for i := range idxs {
+				idxs[i] += p.playIndexOffset
+			}
+			p.OnReorderItems(idxs, insertPos+p.playIndexOffset)
 		}
 	}
 
 	return p
+}
+
+// SetPlayIndexOffset adjusts click/drag indices when displaying a filtered queue.
+func (p *PlayQueueList) SetPlayIndexOffset(offset int) {
+	p.playIndexOffset = offset
 }
 
 func (p *PlayQueueList) SetTracks(trs []*mediaprovider.Track) {
@@ -177,11 +187,17 @@ func (p *PlayQueueList) Scroll(amount float32) {
 	p.list.ScrollToOffset(p.list.GetScrollOffset() + amount)
 }
 
+func (p *PlayQueueList) ScrollToOffset(offset float32) {
+	p.list.ScrollToOffset(offset)
+}
+
 func (p *PlayQueueList) ScrollToNowPlaying() {
 	idx := slices.IndexFunc(p.items, func(item *util.TrackListModel) bool {
 		return item.Item.Metadata().ID == p.nowPlayingID
 	})
-	p.list.ScrollTo(idx)
+	if idx >= 0 {
+		p.list.ScrollTo(idx)
+	}
 }
 
 func (p *PlayQueueList) Refresh() {
@@ -203,7 +219,7 @@ func (t *PlayQueueList) onArtistTapped(artistID string) {
 
 func (p *PlayQueueList) onPlayTrackAt(idx int) {
 	if p.OnPlayItemAt != nil {
-		p.OnPlayItemAt(idx)
+		p.OnPlayItemAt(idx + p.playIndexOffset)
 	}
 }
 

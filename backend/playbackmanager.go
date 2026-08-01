@@ -387,6 +387,13 @@ func (p *PlaybackManager) OnQueueChange(cb func()) {
 	p.engine.onQueueChange = append(p.engine.onQueueChange, cb)
 }
 
+// TriggerQueueChangeCallback notifies all queue change listeners.
+func (p *PlaybackManager) TriggerQueueChangeCallback() {
+	for _, cb := range p.engine.onQueueChange {
+		cb()
+	}
+}
+
 // Registers a callback that is notified whenever the player has been seeked.
 func (p *PlaybackManager) OnSeek(cb func()) {
 	p.engine.onSeek = append(p.engine.onSeek, cb)

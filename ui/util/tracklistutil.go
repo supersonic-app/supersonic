@@ -104,3 +104,11 @@ func FindItemByID(items []*TrackListModel, id string) (mediaprovider.MediaItem, 
 	}
 	return nil, -1
 }
+
+// FilterQueueForHidePlayed returns a filtered queue and offset based on hidePlayed setting.
+func FilterQueueForHidePlayed(items []mediaprovider.MediaItem, nowIdx int, hidePlayed bool) ([]mediaprovider.MediaItem, int) {
+	if hidePlayed && nowIdx > 0 && nowIdx < len(items) {
+		return items[nowIdx:], nowIdx
+	}
+	return items, 0
+}
