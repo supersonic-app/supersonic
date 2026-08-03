@@ -24,12 +24,13 @@ import (
 // A high-level MediaProvider-aware playback engine, serves as an
 // intermediary between the frontend and various Player backends.
 type PlaybackManager struct {
-	engine   *playbackEngine
-	wfmGen   *WaveformImageGenerator
-	cache    *AudioCache
-	cmdQueue *playbackCommandQueue
-	appCfg   *AppConfig
-	cfg      *PlaybackConfig
+	engine       *playbackEngine
+	wfmGen       *WaveformImageGenerator
+	cache        *AudioCache
+	cmdQueue     *playbackCommandQueue
+	appCfg       *AppConfig
+	cfg          *PlaybackConfig
+	transcodeCfg *TranscodingConfig
 
 	// CoverArtPathFn returns a local filesystem path to the cached cover
 	// art image for the given CoverArtID. Used by DLNA cast so the
@@ -54,6 +55,14 @@ type PlaybackManager struct {
 	pendingAutoplay    bool
 	wasLoadTrackPaused bool
 
+	// URL cache to avoid duplicate requests between playback and waveform generation
+	urlCache     map[string]urlCacheEntry
+	urlCacheLock sync.RWMutex
+}
+
+type urlCacheEntry struct {
+	url      string
+	cachedAt time.Time
 	// current radio metadata
 	radioStationName string
 	radioIcyTitle    string
@@ -80,19 +89,66 @@ func NewPlaybackManager(
 	e := NewPlaybackEngine(ctx, s, c, p, playbackCfg, scrobbleCfg, transcodeCfg)
 	q := NewCommandQueue()
 	pm := &PlaybackManager{
-		engine:      e,
-		cmdQueue:    q,
-		appCfg:      appCfg,
-		cfg:         playbackCfg,
-		localPlayer: p,
-		cache:       c,
+		engine:       e,
+		cmdQueue:     q,
+		appCfg:       appCfg,
+		cfg:          playbackCfg,
+		transcodeCfg: transcodeCfg,
+		localPlayer:  p,
+		cache:        c,
+		urlCache:     make(map[string]urlCacheEntry),
 	}
+	// Connect URL cache callback to playbackEngine for shared URL caching
+	e.getCachedURL = pm.getCachedStreamURL
 	if c != nil {
-		pm.wfmGen = NewWaveformImageGenerator(c)
+		// Create URL provider that reuses cached URLs to avoid duplicate requests
+		urlProvider := func(trackID string) string {
+			return pm.getCachedStreamURL(trackID)
+		}
+		pm.wfmGen = NewWaveformImageGeneratorWithURLProvider(c, urlProvider)
 	}
 	pm.addOnTrackChangeHook()
 	go pm.runCmdQueue(ctx)
 	return pm
+}
+
+// getCachedStreamURL returns a cached URL if available (within 30s), otherwise fetches and caches it
+func (p *PlaybackManager) getCachedStreamURL(trackID string) string {
+	const cacheTTL = 30 * time.Second
+
+	p.urlCacheLock.RLock()
+	entry, exists := p.urlCache[trackID]
+	p.urlCacheLock.RUnlock()
+
+	if exists && time.Since(entry.cachedAt) < cacheTTL {
+		return entry.url
+	}
+
+	// Fetch new URL
+	var url string
+	if s := p.engine.sm.Server; s != nil {
+		// Try HLS URL first (if enabled in settings)
+		if p.transcodeCfg.UseHLS {
+			if hlsURL, err := s.GetHLSStreamURL(trackID); err == nil && hlsURL != "" {
+				url = hlsURL
+			}
+		}
+
+		// Fall back to regular stream URL if HLS not enabled or not available
+		if url == "" {
+			if streamURL, err := s.GetStreamURL(trackID, nil, false); err == nil {
+				url = streamURL
+			}
+		}
+	}
+
+	if url != "" {
+		p.urlCacheLock.Lock()
+		p.urlCache[trackID] = urlCacheEntry{url: url, cachedAt: time.Now()}
+		p.urlCacheLock.Unlock()
+	}
+
+	return url
 }
 
 func (p *PlaybackManager) findWfmImageJob(id string, uncanceledOnly bool) (*WaveformImageJob, bool) {
@@ -226,7 +282,7 @@ func (p *PlaybackManager) handleWaveformImageSongChange(item mediaprovider.Media
 			for _, cb := range p.onWaveformImgUpdate {
 				cb(img)
 			}
-			if !job.done && job != nil {
+			if !job.done {
 				updateUnfinishedJob(job)
 			}
 		}

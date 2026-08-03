@@ -84,6 +84,7 @@
     "Disable automatic DPI adjustment": "Otomatik DPI ayarlamasını devre dışı bırak",
     "Disable server transcoding": "Sunucu taraflı dönüştürmeyi (Transcode) kapat",
     "Disc number": "Disk numarası",
+    "Use HLS streaming (when available)": "HLS akışı kullan (müsait olduğunda)",
     "Discography": "Diskografi",
     "Download": "İndir",
     "Download completed": "İndirme tamamlandı",

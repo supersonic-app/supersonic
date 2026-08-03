@@ -297,6 +297,22 @@ func (s *subsonicMediaProvider) GetStreamURL(trackID string, transcode *mediapro
 	return u.String(), nil
 }
 
+func (s *subsonicMediaProvider) GetHLSStreamURL(trackID string) (string, error) {
+	// Use the subsonic client's Request method to properly build the URL with authentication
+	// We use "hls.m3u8" as the endpoint per OpenSubsonic spec
+	params := url.Values{}
+	params.Set("id", trackID)
+
+	// Request the HLS playlist URL
+	resp, err := s.client.Request("GET", "hls.m3u8", params)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	return resp.Request.URL.String(), nil
+}
+
 func (s *subsonicMediaProvider) GetTopTracks(artist mediaprovider.Artist, count int) ([]*mediaprovider.Track, error) {
 	params := map[string]string{}
 	if count > 0 {

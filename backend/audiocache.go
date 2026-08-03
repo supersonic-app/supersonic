@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/20after4/configdir"
@@ -123,7 +124,18 @@ func (a *AudioCache) CacheFile(id, dlURL string) {
 	a.cacheFile(id, dlURL)
 }
 
+// IsHLSURL checks if the URL is an HLS manifest that should not be downloaded
+// MPV handles HLS streaming natively, so we skip caching for these URLs
+func IsHLSURL(url string) bool {
+	return strings.Contains(url, "hls.m3u8") || strings.Contains(url, ".m3u8")
+}
+
 func (a *AudioCache) cacheFile(id, dlURL string) {
+	// Skip caching for HLS URLs - MPV handles these natively with better gapless support
+	if IsHLSURL(dlURL) {
+		return
+	}
+
 	if _, ok := a.entries[id]; !ok {
 		ctx, cancel := context.WithCancel(a.rootCtx)
 		a.entries[id] = &cacheEntry{cancel: cancel}

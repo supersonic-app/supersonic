@@ -124,6 +124,9 @@ type playbackEngine struct {
 	onQueueChange      []func()
 
 	onRadioMetadataChange []func(radioName, title, artist string)
+
+	// URL cache callback for sharing URLs between playback and waveform generation
+	getCachedURL func(trackID string) string
 }
 
 func NewPlaybackEngine(
@@ -917,6 +920,11 @@ func (p *playbackEngine) handleOnTrackChange() {
 	p.handleTimePosUpdate(false)
 	p.handleNextTrackUpdated()
 
+	// Set next track immediately for gapless playback (HLS needs early prefetch)
+	if nextIdx := p.nextPlayingIndex(); nextIdx >= 0 && nextIdx < len(p.playQueue) {
+		p.setNextTrack(nextIdx)
+	}
+
 	if p.pauseAfterCurrent {
 		p.Pause()
 		p.SetPauseAfterCurrent(false)
@@ -987,7 +995,8 @@ func (p *playbackEngine) setTrack(idx int, next bool, startTime float64) error {
 		var meta mediaprovider.MediaItemMetadata
 		if idx >= 0 {
 			meta = item.Metadata()
-			if isTrack && p.audiocache != nil {
+			// Only use cached file for non-HLS URLs - HLS is handled natively by MPV
+			if isTrack && p.audiocache != nil && !IsHLSURL(url) {
 				if filepath := p.audiocache.PathForCachedFile(track.ID); filepath != "" {
 					url = filepath
 				}
@@ -1035,6 +1044,20 @@ func (p *playbackEngine) getMediaURLForIdx(idx int) string {
 	var url string
 	item := p.getPlayQueueItemAt(idx)
 	if tr, ok := item.(*mediaprovider.Track); ok {
+		// Use cached URL if available (avoids duplicate requests)
+		if p.getCachedURL != nil {
+			if cachedURL := p.getCachedURL(tr.ID); cachedURL != "" {
+				return cachedURL
+			}
+		}
+		// Use HLS streaming if enabled and available
+		if p.transcodeCfg.UseHLS {
+			hlsURL, err := p.sm.Server.GetHLSStreamURL(tr.ID)
+			if err == nil && hlsURL != "" {
+				return hlsURL
+			}
+			// Fall back to regular streaming if HLS fails or is not supported
+		}
 		var ts *mediaprovider.TranscodeSettings
 		if p.transcodeCfg.RequestTranscode {
 			ts = &mediaprovider.TranscodeSettings{

@@ -84,6 +84,7 @@
     "Disable automatic DPI adjustment": "自動DPI調整を無効にする",
     "Disable server transcoding": "サーバーのトランスコーディングを無効にする",
     "Disc number": "ディスク番号",
+    "Use HLS streaming (when available)": "HLSストリーミングを使用する（利用可能な場合）",
     "Discography": "ディスコグラフィー",
     "Download": "ダウンロード",
     "Download completed": "ダウンロードが完了しました",
