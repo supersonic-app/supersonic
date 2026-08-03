@@ -26,7 +26,6 @@ type ServerManager struct {
 	Server       mediaprovider.MediaProvider
 
 	useKeyring        bool
-	prefetchCoverCB   func(string)
 	appName           string
 	appVersion        string
 	config            *Config
@@ -45,20 +44,12 @@ func NewServerManager(appName, appVersion string, config *Config, useKeyring boo
 	}
 }
 
-func (s *ServerManager) SetPrefetchAlbumCoverCallback(cb func(string)) {
-	s.prefetchCoverCB = cb
-	if s.Server != nil {
-		s.Server.SetPrefetchCoverCallback(cb)
-	}
-}
-
 func (s *ServerManager) ConnectToServer(conf *ServerConfig, password string) error {
 	cli, err := s.connect(conf.ServerConnection, password)
 	if err != nil {
 		return err
 	}
 	s.Server = cli.MediaProvider()
-	s.Server.SetPrefetchCoverCallback(s.prefetchCoverCB)
 	s.LoggedInUser = conf.Username
 	s.ServerID = conf.ID
 	s.SetDefaultServer(s.ServerID)

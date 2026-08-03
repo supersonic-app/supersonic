@@ -26,8 +26,7 @@ const (
 type subsonicMediaProvider struct {
 	currentLibraryID string
 
-	client          *subsonic.Client
-	prefetchCoverCB func(coverArtID string)
+	client *subsonic.Client
 
 	genresCached   []*mediaprovider.Genre
 	genresCachedAt int64 // unix
@@ -44,10 +43,6 @@ type subsonicMediaProvider struct {
 
 func SubsonicMediaProvider(subsonicClient *subsonic.Client) mediaprovider.MediaProvider {
 	return &subsonicMediaProvider{client: subsonicClient}
-}
-
-func (s *subsonicMediaProvider) SetPrefetchCoverCallback(cb func(coverArtID string)) {
-	s.prefetchCoverCB = cb
 }
 
 func (s *subsonicMediaProvider) GetLibraries() ([]mediaprovider.Library, error) {
