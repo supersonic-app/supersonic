@@ -77,6 +77,12 @@ void installReopenDelegate(void) {
     [NSApp setDelegate:d];
 }
 
+void setDockIconVisible(int visible) {
+    [NSApp setActivationPolicy:visible
+        ? NSApplicationActivationPolicyRegular
+        : NSApplicationActivationPolicyAccessory];
+}
+
 void dockMenuBegin(void) {
     if (!dockMenuTarget) {
         dockMenuTarget = [DockMenuTarget new];

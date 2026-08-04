@@ -11,5 +11,8 @@ func isRealQuit() bool {
 	return false
 }
 
+func setAppDockIconVisible(visible bool) {
+}
+
 func installDockMenu(menu *fyne.Menu) {
 }
