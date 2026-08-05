@@ -9,17 +9,17 @@ import (
 	"time"
 
 	fynetooltip "github.com/dweymouth/fyne-tooltip"
-	"github.com/dweymouth/supersonic/backend"
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	"github.com/dweymouth/supersonic/backend/windows"
-	"github.com/dweymouth/supersonic/res"
-	"github.com/dweymouth/supersonic/ui/browsing"
-	uicontainer "github.com/dweymouth/supersonic/ui/container"
-	"github.com/dweymouth/supersonic/ui/controller"
-	"github.com/dweymouth/supersonic/ui/dialogs"
-	"github.com/dweymouth/supersonic/ui/shortcuts"
-	myTheme "github.com/dweymouth/supersonic/ui/theme"
-	"github.com/dweymouth/supersonic/ui/util"
+	"github.com/supersonic-app/supersonic/backend"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/backend/windows"
+	"github.com/supersonic-app/supersonic/res"
+	"github.com/supersonic-app/supersonic/ui/browsing"
+	uicontainer "github.com/supersonic-app/supersonic/ui/container"
+	"github.com/supersonic-app/supersonic/ui/controller"
+	"github.com/supersonic-app/supersonic/ui/dialogs"
+	"github.com/supersonic-app/supersonic/ui/shortcuts"
+	myTheme "github.com/supersonic-app/supersonic/ui/theme"
+	"github.com/supersonic-app/supersonic/ui/util"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -62,6 +62,7 @@ func NewMainWindow(fyneApp fyne.App, appName, displayAppName, appVersion string,
 		theme:  myTheme.NewMyTheme(&app.Config.Theme, app.ThemesDir()),
 	}
 	installReopenHandler(m.Window)
+	installDockMenu(m.createSystemTrayAndDockMenu(false))
 	fynetooltip.SetToolTipTextSizeName(myTheme.SizeNameSubText)
 
 	m.theme.NormalFont = app.Config.Application.FontNormalTTF
@@ -405,33 +406,7 @@ func (m *MainWindow) RunOnServerConnectedTasks(serverConf *backend.ServerConfig,
 
 func (m *MainWindow) SetupSystemTrayMenu(appName string, fyneApp fyne.App) {
 	if desk, ok := fyneApp.(desktop.App); ok {
-		menu := fyne.NewMenu(appName,
-			fyne.NewMenuItem(fmt.Sprintf("%s/%s", lang.L("Play"), lang.L("Pause")), func() {
-				m.App.PlaybackManager.PlayPause()
-			}),
-			fyne.NewMenuItem(lang.L("Previous"), func() {
-				m.App.PlaybackManager.SeekBackOrPrevious()
-			}),
-			fyne.NewMenuItem(lang.L("Next"), func() {
-				m.App.PlaybackManager.SeekNext()
-			}),
-			fyne.NewMenuItemSeparator(),
-			fyne.NewMenuItem(lang.L("Volume")+" +10%", func() {
-				vol := m.App.PlaybackManager.Volume()
-				vol = vol + int(float64(vol)*0.1)
-				// will clamp to range for us
-				m.App.PlaybackManager.SetVolume(vol)
-			}),
-			fyne.NewMenuItem(lang.L("Volume")+" -10%", func() {
-				vol := m.App.PlaybackManager.Volume()
-				vol = vol - int(float64(vol)*0.1)
-				m.App.PlaybackManager.SetVolume(vol)
-			}),
-			fyne.NewMenuItemSeparator(),
-			fyne.NewMenuItem(lang.L("Show"), m.Window.Show),
-			fyne.NewMenuItem(lang.L("Hide"), m.Window.Hide),
-		)
-		desk.SetSystemTrayMenu(menu)
+		desk.SetSystemTrayMenu(m.createSystemTrayAndDockMenu(true))
 		desk.SetSystemTrayIcon(res.ResAppicon256Png)
 		if runtime.GOOS != "darwin" {
 			// Left-click opening systray menu instead of raising window
@@ -440,6 +415,38 @@ func (m *MainWindow) SetupSystemTrayMenu(appName string, fyneApp fyne.App) {
 		}
 		m.haveSystemTray = true
 	}
+}
+
+func (m *MainWindow) createSystemTrayAndDockMenu(includeShowAndHide bool) *fyne.Menu {
+	menu := fyne.NewMenu("",
+		fyne.NewMenuItem(fmt.Sprintf("%s/%s", lang.L("Play"), lang.L("Pause")), func() {
+			m.App.PlaybackManager.PlayPause()
+		}),
+		fyne.NewMenuItem(lang.L("Previous"), func() {
+			m.App.PlaybackManager.SeekBackOrPrevious()
+		}),
+		fyne.NewMenuItem(lang.L("Next"), func() {
+			m.App.PlaybackManager.SeekNext()
+		}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem(lang.L("Volume")+" +10%", func() {
+			vol := m.App.PlaybackManager.Volume()
+			vol = vol + int(float64(vol)*0.1)
+			// will clamp to range for us
+			m.App.PlaybackManager.SetVolume(vol)
+		}),
+		fyne.NewMenuItem(lang.L("Volume")+" -10%", func() {
+			vol := m.App.PlaybackManager.Volume()
+			vol = vol - int(float64(vol)*0.1)
+			m.App.PlaybackManager.SetVolume(vol)
+		}),
+	)
+	if includeShowAndHide {
+		menu.Items = append(menu.Items, fyne.NewMenuItemSeparator())
+		menu.Items = append(menu.Items, fyne.NewMenuItem(lang.L("Show"), m.Window.Show))
+		menu.Items = append(menu.Items, fyne.NewMenuItem(lang.L("Hide"), m.Window.Hide))
+	}
+	return menu
 }
 
 func (m *MainWindow) HaveSystemTray() bool {

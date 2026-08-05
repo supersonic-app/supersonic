@@ -7,16 +7,17 @@ import (
 	"time"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/lang"
 	"fyne.io/fyne/v2/widget"
-	"github.com/dweymouth/supersonic/backend"
-	"github.com/dweymouth/supersonic/ui/dialogs"
+	"github.com/supersonic-app/supersonic/backend"
+	"github.com/supersonic-app/supersonic/ui/dialogs"
 )
 
 func (m *Controller) PromptForFirstServer() {
 	d := dialogs.NewAddEditServerDialog(lang.L("Connect to Server"), false, nil, m.MainWindow.Canvas().Focus)
-	pop := widget.NewModalPopUp(d, m.MainWindow.Canvas())
+	pop := widget.NewModalPopUp(container.NewPadded(d), m.MainWindow.Canvas())
 	d.OnSubmit = func() {
 		d.DisableSubmit()
 		go func() {
@@ -109,7 +110,7 @@ func (c *Controller) doConnectWithPassword(server *backend.ServerConfig, pass st
 
 func (m *Controller) PromptForLoginAndConnect() {
 	d := dialogs.NewLoginDialog(m.App.Config.Servers, m.App.ServerManager.GetServerPassword)
-	pop := widget.NewModalPopUp(d, m.MainWindow.Canvas())
+	pop := widget.NewModalPopUp(container.NewPadded(d), m.MainWindow.Canvas())
 	d.OnSubmit = func(server *backend.ServerConfig, password string) {
 		d.DisableSubmit()
 		d.SetInfoText(lang.L("Testing connection") + "...")
@@ -135,7 +136,7 @@ func (m *Controller) PromptForLoginAndConnect() {
 	d.OnEditServer = func(server *backend.ServerConfig) {
 		pop.Hide()
 		editD := dialogs.NewAddEditServerDialog(lang.L("Edit server"), true, server, m.MainWindow.Canvas().Focus)
-		editPop := widget.NewModalPopUp(editD, m.MainWindow.Canvas())
+		editPop := widget.NewModalPopUp(container.NewPadded(editD), m.MainWindow.Canvas())
 		editD.OnSubmit = func() {
 			d.DisableSubmit()
 			go func() {
@@ -166,7 +167,7 @@ func (m *Controller) PromptForLoginAndConnect() {
 	d.OnNewServer = func() {
 		pop.Hide()
 		newD := dialogs.NewAddEditServerDialog(lang.L("Add Server"), true, nil, m.MainWindow.Canvas().Focus)
-		newPop := widget.NewModalPopUp(newD, m.MainWindow.Canvas())
+		newPop := widget.NewModalPopUp(container.NewPadded(newD), m.MainWindow.Canvas())
 		newD.OnSubmit = func() {
 			d.DisableSubmit()
 			go func() {

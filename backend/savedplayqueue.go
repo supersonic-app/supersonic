@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
 )
 
 type SavedPlayQueue struct {

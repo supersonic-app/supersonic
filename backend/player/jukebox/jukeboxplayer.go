@@ -3,8 +3,8 @@ package jukebox
 import (
 	"time"
 
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	"github.com/dweymouth/supersonic/backend/player"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/backend/player"
 )
 
 const (

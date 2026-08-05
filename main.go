@@ -11,14 +11,14 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/dweymouth/supersonic/backend"
-	"github.com/dweymouth/supersonic/backend/windows"
-	"github.com/dweymouth/supersonic/res"
-	"github.com/dweymouth/supersonic/res/wintaskbarthumbs"
-	"github.com/dweymouth/supersonic/ui"
-	"github.com/dweymouth/supersonic/ui/controller"
-	myTheme "github.com/dweymouth/supersonic/ui/theme"
-	"github.com/dweymouth/supersonic/ui/util"
+	"github.com/supersonic-app/supersonic/backend"
+	"github.com/supersonic-app/supersonic/backend/windows"
+	"github.com/supersonic-app/supersonic/res"
+	"github.com/supersonic-app/supersonic/res/wintaskbarthumbs"
+	"github.com/supersonic-app/supersonic/ui"
+	"github.com/supersonic-app/supersonic/ui/controller"
+	myTheme "github.com/supersonic-app/supersonic/ui/theme"
+	"github.com/supersonic-app/supersonic/ui/util"
 	"golang.org/x/term"
 
 	"fyne.io/fyne/v2"
@@ -105,7 +105,7 @@ func main() {
 		}
 	}
 
-	fyneApp := app.New()
+	fyneApp := app.NewWithID(res.AppID)
 	fyneApp.SetIcon(res.ResAppicon256Png)
 
 	mainWindow := ui.NewMainWindow(fyneApp, res.AppName, res.DisplayName, res.AppVersion, myApp)

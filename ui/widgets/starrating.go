@@ -3,7 +3,7 @@ package widgets
 import (
 	"math"
 
-	"github.com/dweymouth/supersonic/res"
+	"github.com/supersonic-app/supersonic/res"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"

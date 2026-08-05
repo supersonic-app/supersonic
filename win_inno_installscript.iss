@@ -4,7 +4,7 @@
 #define MyAppName "Supersonic"
 #define MyAppVersion "0.22.0"
 #define MyAppPublisher "Drew Weymouth"
-#define MyAppURL "https://github.com/dweymouth/supersonic"
+#define MyAppURL "https://github.com/supersonic-app/supersonic"
 #define MyAppExeName "Supersonic.exe"
 
 [Setup]

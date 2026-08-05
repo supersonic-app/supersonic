@@ -14,15 +14,15 @@ import (
 	"time"
 
 	fynetooltip "github.com/dweymouth/fyne-tooltip"
-	"github.com/dweymouth/supersonic/backend"
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	"github.com/dweymouth/supersonic/backend/player"
-	"github.com/dweymouth/supersonic/backend/player/mpv"
-	"github.com/dweymouth/supersonic/sharedutil"
-	"github.com/dweymouth/supersonic/ui/dialogs"
-	myTheme "github.com/dweymouth/supersonic/ui/theme"
-	"github.com/dweymouth/supersonic/ui/util"
-	"github.com/dweymouth/supersonic/ui/widgets"
+	"github.com/supersonic-app/supersonic/backend"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/backend/player"
+	"github.com/supersonic-app/supersonic/backend/player/mpv"
+	"github.com/supersonic-app/supersonic/sharedutil"
+	"github.com/supersonic-app/supersonic/ui/dialogs"
+	myTheme "github.com/supersonic-app/supersonic/ui/theme"
+	"github.com/supersonic-app/supersonic/ui/util"
+	"github.com/supersonic-app/supersonic/ui/widgets"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -300,7 +300,7 @@ func (m *Controller) GetArtistTracks(artistID string) []*mediaprovider.Track {
 
 func (c *Controller) ShowAboutDialog() {
 	dlg := dialogs.NewAboutDialog(c.AppVersion)
-	pop := widget.NewModalPopUp(dlg, c.MainWindow.Canvas())
+	pop := widget.NewModalPopUp(container.NewPadded(dlg), c.MainWindow.Canvas())
 	dlg.OnDismiss = func() {
 		pop.Hide()
 		c.doModalClosed()
@@ -376,7 +376,7 @@ func (c *Controller) ShowSettingsDialog(themeUpdateCallbk func(), themeFiles map
 	}
 	dlg.OnPageNeedsRefresh = c.RefreshPageFunc
 	dlg.OnClearCaches = func() { go c.App.ClearCaches() }
-	pop := widget.NewModalPopUp(dlg, c.MainWindow.Canvas())
+	pop := widget.NewModalPopUp(container.NewPadded(dlg), c.MainWindow.Canvas())
 	fynetooltip.AddPopUpToolTipLayer(pop)
 	dlg.OnDismiss = func() {
 		pop.Hide()
@@ -596,7 +596,7 @@ func (c *Controller) ShowAlbumInfoDialog(albumID, albumName string, albumCover i
 		}
 		fyne.Do(func() {
 			dlg := dialogs.NewAlbumInfoDialog(albumInfo, albumName, albumCover)
-			pop := widget.NewModalPopUp(dlg, c.MainWindow.Canvas())
+			pop := widget.NewModalPopUp(container.NewPadded(dlg), c.MainWindow.Canvas())
 			dlg.OnDismiss = func() {
 				pop.Hide()
 				c.doModalClosed()
@@ -613,7 +613,7 @@ func (c *Controller) ShowAlbumInfoDialog(albumID, albumName string, albumCover i
 
 func (c *Controller) ShowTrackInfoDialog(track *mediaprovider.Track) {
 	info := dialogs.NewTrackInfoDialog(track)
-	pop := widget.NewModalPopUp(info, c.MainWindow.Canvas())
+	pop := widget.NewModalPopUp(container.NewPadded(info), c.MainWindow.Canvas())
 	info.OnDismiss = func() {
 		pop.Hide()
 		c.doModalClosed()

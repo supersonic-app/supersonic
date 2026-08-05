@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"

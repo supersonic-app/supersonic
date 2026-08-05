@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/deluan/sanitize"
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
 )
 
 // name and terms should be pre-converted to the same case

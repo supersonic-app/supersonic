@@ -11,12 +11,12 @@ import (
 	"time"
 
 	"github.com/dweymouth/go-jellyfin"
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	jellyfinMP "github.com/dweymouth/supersonic/backend/mediaprovider/jellyfin"
-	subsonicMP "github.com/dweymouth/supersonic/backend/mediaprovider/subsonic"
-	"github.com/dweymouth/supersonic/res"
 	"github.com/google/uuid"
 	"github.com/supersonic-app/go-subsonic/subsonic"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	jellyfinMP "github.com/supersonic-app/supersonic/backend/mediaprovider/jellyfin"
+	subsonicMP "github.com/supersonic-app/supersonic/backend/mediaprovider/subsonic"
+	"github.com/supersonic-app/supersonic/res"
 	"github.com/zalando/go-keyring"
 )
 

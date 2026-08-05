@@ -11,10 +11,10 @@ import (
 	"fyne.io/fyne/v2/lang"
 	"fyne.io/fyne/v2/widget"
 	"github.com/deluan/sanitize"
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	"github.com/dweymouth/supersonic/backend/mediaprovider/jellyfin"
-	"github.com/dweymouth/supersonic/sharedutil"
-	"github.com/dweymouth/supersonic/ui/util"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider/jellyfin"
+	"github.com/supersonic-app/supersonic/sharedutil"
+	"github.com/supersonic-app/supersonic/ui/util"
 )
 
 type SelectPlaylist struct {

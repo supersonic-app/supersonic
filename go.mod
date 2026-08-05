@@ -1,18 +1,18 @@
-module github.com/dweymouth/supersonic
+module github.com/supersonic-app/supersonic
 
 go 1.24.0
 
 require (
-	fyne.io/fyne/v2 v2.7.2
+	fyne.io/fyne/v2 v2.8.0
 	github.com/20after4/configdir v0.1.1
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/boxes-ltd/imaging v1.7.5
 	github.com/cenkalti/dominantcolor v1.0.3
-	github.com/charlievieth/strcase v0.0.5
+	github.com/charlievieth/strcase v0.0.6
 	github.com/deluan/sanitize v0.0.0-20241120162836-fdfd8fdfaa55
 	github.com/dweymouth/fyne-advanced-list v0.0.0-20250211191927-58ea85eec72c
 	github.com/dweymouth/fyne-tooltip v0.4.0
-	github.com/dweymouth/go-jellyfin v0.0.0-20250928223159-bd2fb9681ef5
+	github.com/dweymouth/go-jellyfin v0.0.0-20260422144755-ac6d50639b1a
 	github.com/go-audio/audio v1.0.0
 	github.com/go-audio/wav v1.1.0
 	github.com/godbus/dbus/v5 v5.2.2
@@ -39,7 +39,6 @@ require (
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/fredbi/uri v1.1.1 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fyne-io/gl-js v0.2.1-0.20260315212741-029c47fd27e8 // indirect
 	github.com/fyne-io/glfw-js v0.4.0 // indirect
@@ -47,7 +46,7 @@ require (
 	github.com/fyne-io/oksvg v0.2.0 // indirect
 	github.com/go-audio/riff v1.0.0 // indirect
 	github.com/go-gl/gl v0.0.0-20260331235117-4566fea9a276 // indirect
-	github.com/go-gl/glfw/v3.4/glfw v0.1.0-pre.1.0.20260627172858-eb9c312d9d47 // indirect
+	github.com/go-gl/glfw/v3.4/glfw v0.1.0-pre.1.0.20260707082822-2a407d02d01a // indirect
 	github.com/go-text/render v0.2.1 // indirect
 	github.com/go-text/typesetting v0.3.4 // indirect
 	github.com/h2non/filetype v1.1.3 // indirect
@@ -70,6 +69,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace fyne.io/fyne/v2 v2.7.2 => github.com/dweymouth/fyne/v2 v2.3.0-rc1.0.20260707001049-35cc7c250c08
+replace fyne.io/fyne/v2 v2.8.0 => github.com/dweymouth/fyne/v2 v2.3.0-rc1.0.20260802230825-ecc82cb9584e
 
 replace github.com/go-audio/wav v1.1.0 => github.com/dweymouth/go-wav v0.0.0-20250719173115-e60429a83eb0

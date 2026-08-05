@@ -5,14 +5,15 @@ import (
 	"strconv"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/lang"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	"github.com/dweymouth/supersonic/sharedutil"
-	"github.com/dweymouth/supersonic/ui/dialogs"
-	"github.com/dweymouth/supersonic/ui/util"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/sharedutil"
+	"github.com/supersonic-app/supersonic/ui/dialogs"
+	"github.com/supersonic-app/supersonic/ui/util"
 )
 
 // Show dialog to select playlist.
@@ -21,7 +22,7 @@ import (
 func (m *Controller) DoAddTracksToPlaylistWorkflow(trackIDs []string) {
 	sp := dialogs.NewSelectPlaylistDialog(m.App.ServerManager.Server, m.App.ImageManager,
 		m.App.ServerManager.LoggedInUser, m.App.Config.Application.AddToPlaylistSkipDuplicates)
-	pop := widget.NewModalPopUp(sp.SearchDialog, m.MainWindow.Canvas())
+	pop := widget.NewModalPopUp(container.NewPadded(sp.SearchDialog), m.MainWindow.Canvas())
 	sp.SetOnDismiss(func() {
 		pop.Hide()
 		m.doModalClosed()
@@ -102,7 +103,7 @@ func (m *Controller) DoAddTracksToPlaylistWorkflow(trackIDs []string) {
 func (m *Controller) DoEditPlaylistWorkflow(playlist *mediaprovider.Playlist) {
 	canMakePublic := m.App.ServerManager.Server.CanMakePublicPlaylist()
 	dlg := dialogs.NewEditPlaylistDialog(playlist, canMakePublic)
-	pop := widget.NewModalPopUp(dlg, m.MainWindow.Canvas())
+	pop := widget.NewModalPopUp(container.NewPadded(dlg), m.MainWindow.Canvas())
 	m.ClosePopUpOnEscape(pop)
 	dlg.OnCanceled = func() {
 		pop.Hide()
@@ -152,7 +153,7 @@ func (m *Controller) DoEditPlaylistWorkflow(playlist *mediaprovider.Playlist) {
 func (m *Controller) DoCreatePlaylistWorkflow() {
 	canMakePublic := m.App.ServerManager.Server.CanMakePublicPlaylist()
 	dlg := dialogs.NewCreatePlaylistDialog(canMakePublic)
-	pop := widget.NewModalPopUp(dlg, m.MainWindow.Canvas())
+	pop := widget.NewModalPopUp(container.NewPadded(dlg), m.MainWindow.Canvas())
 	m.ClosePopUpOnEscape(pop)
 	dlg.OnCanceled = func() {
 		pop.Hide()

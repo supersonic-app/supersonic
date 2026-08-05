@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
 )
 
 func Test_ReorderItems(t *testing.T) {

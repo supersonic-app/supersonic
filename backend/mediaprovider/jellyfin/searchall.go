@@ -6,9 +6,9 @@ import (
 
 	"github.com/deluan/sanitize"
 	"github.com/dweymouth/go-jellyfin"
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	"github.com/dweymouth/supersonic/backend/mediaprovider/helpers"
-	"github.com/dweymouth/supersonic/sharedutil"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider/helpers"
+	"github.com/supersonic-app/supersonic/sharedutil"
 )
 
 func (j *JellyfinMediaProvider) SearchAll(searchQuery string, maxResults int) ([]*mediaprovider.SearchResult, error) {

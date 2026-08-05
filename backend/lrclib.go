@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/20after4/configdir"
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
 )
 
 const lrclibCacheFolder = "lrclib"

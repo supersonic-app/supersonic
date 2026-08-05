@@ -3,8 +3,8 @@ package helpers
 import (
 	"log"
 
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	"github.com/dweymouth/supersonic/sharedutil"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/sharedutil"
 )
 
 type baseIter[M, F any] struct {

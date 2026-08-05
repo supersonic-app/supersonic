@@ -10,3 +10,6 @@ func installReopenHandler(w fyne.Window) {
 func isRealQuit() bool {
 	return false
 }
+
+func installDockMenu(menu *fyne.Menu) {
+}

@@ -1,8 +1,8 @@
 package subsonic
 
 import (
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
 	subsonicCli "github.com/supersonic-app/go-subsonic/subsonic"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
 )
 
 type SubsonicServer struct {

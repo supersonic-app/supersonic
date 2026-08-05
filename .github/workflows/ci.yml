@@ -17,7 +17,7 @@ jobs:
       pull-requests: read
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: 'stable'
       - name: Install dependencies
@@ -46,7 +46,7 @@ jobs:
             p7zip
       - uses: actions/checkout@v7
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
       - name: Install Dependencies
@@ -68,7 +68,7 @@ jobs:
         run: >
           zip Supersonic_windows_x64.zip Supersonic.exe libmpv-2.dll SMTC.dll
       - name: Generate installer
-        uses: Minionguyjpro/Inno-Setup-Action@v1.2.8
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.9
         with:
           path: win_inno_installscript.iss
       - name: Rename installer
@@ -95,7 +95,7 @@ jobs:
         with:
           xcode-version: latest
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
       - name: Install Dependencies
@@ -128,7 +128,7 @@ jobs:
         with:
           xcode-version: latest
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
       - name: Install Dependencies
@@ -165,7 +165,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
       - name: Install dependencies
@@ -189,7 +189,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
       - name: Install dependencies
@@ -213,7 +213,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
       - name: Install dependencies

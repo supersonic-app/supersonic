@@ -13,11 +13,11 @@ import (
 	"fyne.io/fyne/v2/theme"
 
 	"fyne.io/fyne/v2/widget"
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
 
-	myTheme "github.com/dweymouth/supersonic/ui/theme"
-	"github.com/dweymouth/supersonic/ui/util"
-	"github.com/dweymouth/supersonic/ui/widgets"
+	myTheme "github.com/supersonic-app/supersonic/ui/theme"
+	"github.com/supersonic-app/supersonic/ui/util"
+	"github.com/supersonic-app/supersonic/ui/widgets"
 )
 
 // SearchDialog is a base widget to be built upon for creating custom search dialogs

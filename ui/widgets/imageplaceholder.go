@@ -8,7 +8,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-	myTheme "github.com/dweymouth/supersonic/ui/theme"
+	myTheme "github.com/supersonic-app/supersonic/ui/theme"
 )
 
 // A widget that can display an image or else

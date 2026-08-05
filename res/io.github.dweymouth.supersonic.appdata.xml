@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Copyright 2023 anarcat <anarcat@debian.org> -->
 <component type="desktop-application">
-  <id>io.github.dweymouth.supersonic</id>
+  <id>io.github.supersonic-app.supersonic</id>
   <metadata_license>FSFAP</metadata_license>
   <project_license>GPL-3.0+</project_license>
   <name>Supersonic</name>
@@ -42,23 +42,23 @@
     <category>Audio</category>
   </categories>
 
-  <launchable type="desktop-id">io.github.dweymouth.supersonic.desktop</launchable>
+  <launchable type="desktop-id">io.github.supersonic-app.supersonic</launchable>
 
-  <url type="homepage">https://github.com/dweymouth/supersonic</url>
-  <url type="bugtracker">https://github.com/dweymouth/supersonic/issues</url>
+  <url type="homepage">https://github.com/supersonic-app/supersonic</url>
+  <url type="bugtracker">https://github.com/supersonic-app/supersonic/issues</url>
   <screenshots>
     <screenshot type="default">
       <caption>The options dialog</caption>
-      <image>https://raw.githubusercontent.com/dweymouth/supersonic/main/res/screenshots/AlbumsView.png</image>
+      <image>https://raw.githubusercontent.com/supersonic-app/supersonic/main/res/screenshots/AlbumsView.png</image>
     </screenshot>
     <screenshot>
-      <image>https://raw.github.com/dweymouth/supersonic/main/res/screenshots/AlbumView.png</image>
+      <image>https://raw.githubusercontent.com/supersonic-app/supersonic/main/res/screenshots/AlbumView.png</image>
     </screenshot>
     <screenshot>
-      <image>https://raw.github.com/dweymouth/supersonic/main/res/screenshots/ArtistView.png</image>
+      <image>https://raw.githubusercontent.com/supersonic-app/supersonic/main/res/screenshots/ArtistView.png</image>
     </screenshot>
     <screenshot>
-      <image>https://raw.github.com/dweymouth/supersonic/main/res/screenshots/FavoriteSongsView.png</image>
+      <image>https://raw.githubusercontent.com/supersonic-app/supersonic/main/res/screenshots/FavoriteSongsView.png</image>
     </screenshot>
   </screenshots>
 

@@ -20,7 +20,7 @@ import (
 	"strings"
 	"unsafe"
 
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
 )
 
 // os_remote_command_callback is called by Objective-C when incoming OS media commands are received.

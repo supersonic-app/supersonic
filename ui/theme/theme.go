@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dweymouth/supersonic/backend"
-	"github.com/dweymouth/supersonic/res"
+	"github.com/supersonic-app/supersonic/backend"
+	"github.com/supersonic-app/supersonic/res"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"

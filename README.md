@@ -4,24 +4,24 @@
 
 # Supersonic
 
-[![License](https://img.shields.io/github/license/dweymouth/supersonic)](https://github.com/dweymouth/supersonic/blob/main/LICENSE)
-[![Last Release](https://img.shields.io/github/v/release/dweymouth/supersonic?logo=github&label=latest&style=flat)](https://github.com/dweymouth/supersonic/releases)
-[![Downloads](https://img.shields.io/github/downloads/dweymouth/supersonic/total?logo=github&style=flat)](https://github.com/dweymouth/supersonic/releases/latest)
-[![Go Report Card](https://goreportcard.com/badge/github.com/dweymouth/supersonic)](https://goreportcard.com/report/github.com/dweymouth/supersonic)
+[![License](https://img.shields.io/github/license/supersonic-app/supersonic)](https://github.com/supersonic-app/supersonic/blob/main/LICENSE)
+[![Last Release](https://img.shields.io/github/v/release/supersonic-app/supersonic?logo=github&label=latest&style=flat)](https://github.com/supersonic-app/supersonic/releases)
+[![Downloads](https://img.shields.io/github/downloads/supersonic-app/supersonic/total?logo=github&style=flat)](https://github.com/supersonic-app/supersonic/releases/latest)
+[![Go Report Card](https://goreportcard.com/badge/github.com/supersonic-app/supersonic)](https://goreportcard.com/report/github.com/supersonic-app/supersonic)
 [![Discord](https://dcbadge.limes.pink/api/server/H6FC9bAMpF?style=flat)](https://discord.gg/H6FC9bAMpF)
 
 A lightweight cross-platform desktop client for Subsonic and Jellyfin music servers.
 
-[Jump to installation instructions](https://github.com/dweymouth/supersonic#installation)
+[Jump to installation instructions](https://github.com/supersonic-app/supersonic#installation)
 
 ## Screenshots
 
 Screenshots of Supersonic running against the Navidrome demo server, showcasing the builtin dark and light themes.
 
-<a href="https://raw.githubusercontent.com/dweymouth/supersonic/main/res/screenshots/NowPlayingView.png"><img src="https://raw.github.com/dweymouth/supersonic/main/res/screenshots/NowPlayingView.png" width="49.5%"/></a>
-<a href="https://raw.githubusercontent.com/dweymouth/supersonic/main/res/screenshots/AlbumsView.png"><img src="https://raw.github.com/dweymouth/supersonic/main/res/screenshots/AlbumsView.png" width="49.5%"/></a>
-<a href="https://raw.githubusercontent.com/dweymouth/supersonic/main/res/screenshots/FavoriteSongsView.png"><img src="https://raw.github.com/dweymouth/supersonic/main/res/screenshots/FavoriteSongsView.png" width="49.5%"/></a>
-<a href="https://raw.githubusercontent.com/dweymouth/supersonic/main/res/screenshots/ArtistView.png"><img src="https://raw.github.com/dweymouth/supersonic/main/res/screenshots/ArtistView.png" width="49.5%"/></a>
+<a href="https://raw.githubusercontent.com/supersonic-app/supersonic/main/res/screenshots/NowPlayingView.png"><img src="https://raw.github.com/supersonic-app/supersonic/main/res/screenshots/NowPlayingView.png" width="49.5%"/></a>
+<a href="https://raw.githubusercontent.com/supersonic-app/supersonic/main/res/screenshots/AlbumsView.png"><img src="https://raw.github.com/supersonic-app/supersonic/main/res/screenshots/AlbumsView.png" width="49.5%"/></a>
+<a href="https://raw.githubusercontent.com/supersonic-app/supersonic/main/res/screenshots/FavoriteSongsView.png"><img src="https://raw.github.com/supersonic-app/supersonic/main/res/screenshots/FavoriteSongsView.png" width="49.5%"/></a>
+<a href="https://raw.githubusercontent.com/supersonic-app/supersonic/main/res/screenshots/ArtistView.png"><img src="https://raw.github.com/supersonic-app/supersonic/main/res/screenshots/ArtistView.png" width="49.5%"/></a>
 
 ## Supported servers
 
@@ -43,7 +43,7 @@ Supersonic supports any music server with a Subsonic (or OpenSubsonic) API, or J
 * [x] High-quality gapless audio playback powered by MPV, with optional audio exclusive mode
 * [x] ReplayGain support (depends on files being tagged on server)
 * [x] Waveform seekbar
-* [x] [Custom themes](https://github.com/dweymouth/supersonic/wiki/Custom-Themes) 
+* [x] [Custom themes](https://github.com/supersonic-app/supersonic/wiki/Custom-Themes) 
 * [x] MPRIS, Windows SMTC, and Mac OS media center integration for media key and desktop control
 * [x] Built-in 15-band graphic equalizer
 * [x] Scrobble plays to server, with configurable criteria
@@ -64,11 +64,11 @@ Supersonic supports any music server with a Subsonic (or OpenSubsonic) API, or J
 
 ## Installation
 
-Platform-specific installation instructions are listed below. In addition to the most recent stable release, you can also download the latest build from the `main` branch via the [Actions](https://github.com/dweymouth/supersonic/actions) tab to get unreleased features and bug fixes (you must be signed in to Github to do this). If you prefer to build from source, then see the [build instructions](BUILD.md) for your platform.
+Platform-specific installation instructions are listed below. In addition to the most recent stable release, you can also download the latest build from the `main` branch via the [Actions](https://github.com/supersonic-app/supersonic/actions) tab to get unreleased features and bug fixes (you must be signed in to Github to do this). If you prefer to build from source, then see the [build instructions](BUILD.md) for your platform.
 
 ### Linux
 
-* **AppImage:** On the [latest release](https://github.com/dweymouth/supersonic/releases) page, you can download an AppImage package with the MPV library bundled.<br/>
+* **AppImage:** On the [latest release](https://github.com/supersonic-app/supersonic/releases) page, you can download an AppImage package with the MPV library bundled.<br/>
 Tested OSes:<br/> 
 ubuntu 22.04+ <br/> 
 debian 12+ <br/> 
@@ -80,7 +80,7 @@ fedora 42+ <br/>
 
 ### Windows
 
-Download the [latest release](https://github.com/dweymouth/supersonic/releases). You can choose between the installer, or a standalone zip file which can be extracted and run without requiring system installation.
+Download the [latest release](https://github.com/supersonic-app/supersonic/releases). You can choose between the installer, or a standalone zip file which can be extracted and run without requiring system installation.
 
 ### Mac OS
 
@@ -97,7 +97,7 @@ xattr -r -d com.apple.quarantine /Applications/Supersonic.app
 The `xattr -r -d com.apple.quarantine` command is important because Supersonic is distributed without having been [notarized](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution), and therefore will not run without this.
 You should also re-run that xattr command when upgrading in future.
 
-**To install the downloaded .app bundle** from the [Releases page](https://github.com/dweymouth/supersonic/releases), unzip and then drag Supersonic.app to the Applications folder.
+**To install the downloaded .app bundle** from the [Releases page](https://github.com/supersonic-app/supersonic/releases), unzip and then drag Supersonic.app to the Applications folder.
 
 :warning: **Apple Silicon (M1 and newer) Macs:** You will have to remove the "quarantine bit" that Mac will automatically set, being an application downloaded from the internet. After copying the .app bundle to your Applications folder, in the terminal run `xattr -r -d com.apple.quarantine /Applications/Supersonic.app`
 

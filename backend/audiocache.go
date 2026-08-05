@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/20after4/configdir"
-	"github.com/dweymouth/supersonic/sharedutil"
+	"github.com/supersonic-app/supersonic/sharedutil"
 )
 
 // AudioCache manages temporary local storage of audio files fetched from the remote music server.

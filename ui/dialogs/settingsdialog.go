@@ -11,12 +11,12 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/dweymouth/supersonic/backend"
-	"github.com/dweymouth/supersonic/backend/player/mpv"
-	"github.com/dweymouth/supersonic/res"
-	myTheme "github.com/dweymouth/supersonic/ui/theme"
-	"github.com/dweymouth/supersonic/ui/util"
-	"github.com/dweymouth/supersonic/ui/widgets"
+	"github.com/supersonic-app/supersonic/backend"
+	"github.com/supersonic-app/supersonic/backend/player/mpv"
+	"github.com/supersonic-app/supersonic/res"
+	myTheme "github.com/supersonic-app/supersonic/ui/theme"
+	"github.com/supersonic-app/supersonic/ui/util"
+	"github.com/supersonic-app/supersonic/ui/widgets"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -606,7 +606,7 @@ func (s *SettingsDialog) openAutoEQBrowser(geq *GraphicEqualizer, debouncer func
 
 	// Show in a modal popup dialog
 	var popup *widget.PopUp
-	popup = widget.NewModalPopUp(browser.SearchDialog, s.window.Canvas())
+	popup = widget.NewModalPopUp(container.NewPadded(browser.SearchDialog), s.window.Canvas())
 
 	browser.SetOnProfileSelected(func(profile *backend.AutoEQProfile) {
 		s.applyAutoEQProfile(profile, geq, debouncer)

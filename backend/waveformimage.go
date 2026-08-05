@@ -14,11 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	"github.com/dweymouth/supersonic/backend/util"
 	"github.com/go-audio/audio"
 	"github.com/go-audio/wav"
 	"github.com/supersonic-app/go-mpv"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/backend/util"
 )
 
 type WaveformImageGenerator struct {

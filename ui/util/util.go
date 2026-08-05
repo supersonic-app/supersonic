@@ -18,10 +18,10 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	ttwidget "github.com/dweymouth/fyne-tooltip/widget"
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	"github.com/dweymouth/supersonic/res"
-	"github.com/dweymouth/supersonic/sharedutil"
-	myTheme "github.com/dweymouth/supersonic/ui/theme"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/res"
+	"github.com/supersonic-app/supersonic/sharedutil"
+	myTheme "github.com/supersonic-app/supersonic/ui/theme"
 	"golang.org/x/net/html"
 )
 
@@ -403,7 +403,7 @@ func NewTrailingAlignLabel() *widget.Label {
 
 func SaveWindowSize(w fyne.Window, wPtr, hPtr *int) {
 	// round sizes to even to avoid Wayland issues with 2x scaling factor
-	// https://github.com/dweymouth/supersonic/issues/212
+	// https://github.com/supersonic-app/supersonic/issues/212
 	*wPtr = int(math.RoundToEven(float64(w.Canvas().Size().Width)))
 	*hPtr = int(math.RoundToEven(float64(w.Canvas().Size().Height)))
 }

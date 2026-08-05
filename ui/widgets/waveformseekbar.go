@@ -12,7 +12,7 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-	"github.com/dweymouth/supersonic/backend"
+	"github.com/supersonic-app/supersonic/backend"
 )
 
 type WaveformSeekbar struct {

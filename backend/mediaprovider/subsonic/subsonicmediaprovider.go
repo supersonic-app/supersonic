@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	"github.com/dweymouth/supersonic/backend/mediaprovider/helpers"
-	"github.com/dweymouth/supersonic/sharedutil"
 	"github.com/supersonic-app/go-subsonic/subsonic"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider/helpers"
+	"github.com/supersonic-app/supersonic/sharedutil"
 )
 
 const (

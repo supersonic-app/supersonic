@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	"github.com/dweymouth/supersonic/backend/player"
 	"github.com/supersonic-app/go-mpv"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/backend/player"
 )
 
 // Error returned by many Player functions if called before the player has not been initialized.

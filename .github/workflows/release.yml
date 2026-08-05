@@ -26,7 +26,7 @@ jobs:
             p7zip
       - uses: actions/checkout@v7
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
       - name: Install Dependencies
@@ -48,7 +48,7 @@ jobs:
         run: >
           zip Supersonic_windows_x64.zip Supersonic.exe libmpv-2.dll SMTC.dll
       - name: Generate installer
-        uses: Minionguyjpro/Inno-Setup-Action@v1.2.8
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.9
         with:
           path: win_inno_installscript.iss
       - name: Rename installer
@@ -75,7 +75,7 @@ jobs:
         with:
           xcode-version: latest
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
       - name: Install Dependencies
@@ -108,7 +108,7 @@ jobs:
         with:
           xcode-version: latest
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
       - name: Install Dependencies
@@ -120,18 +120,39 @@ jobs:
       - name: Build and package app bundles
         run: >
           make package_macos &&
-          cp -r Supersonic.app Supersonic.app.2 &&
           make bundledeps_macos_homebrew && make zip_macos &&
-          mv Supersonic.zip Supersonic_mac_x64_BigSur+.zip &&
-          rm -r Supersonic.app &&
-          mv Supersonic.app.2 Supersonic.app &&
-          make bundledeps_macos_highsierra && make zip_macos &&
-          mv Supersonic.zip Supersonic_mac_x64_HighSierra+.zip
+          mv Supersonic.zip Supersonic_mac_x64_BigSur+.zip
       - name: Upload Big Sur+ package
         uses: actions/upload-artifact@v7
         with:
           name: Supersonic_mac_x64_BigSur+.zip
           path: Supersonic_mac_x64_BigSur+.zip
+
+  build-macos-legacy:
+    name: Build macOS legacy
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.24'
+      - name: Install Dependencies
+        run: brew install --force mpv && brew install --force dylibbundler
+      - name: Setup path
+        run: export C_INCLUDE_PATH=/usr/local/include:/opt/homebrew/include:$C_INCLUDE_PATH && export LIBRARY_PATH=/usr/local/lib:/opt/homebrew/lib:$LIBRARY_PATH
+      - name: Install Fyne tool
+        run: go install fyne.io/fyne/v2/cmd/fyne@latest
+      - name: Build and package app bundles
+        run: >
+          make package_macos &&
+          make bundledeps_macos_highsierra && make zip_macos &&
+          mv Supersonic.zip Supersonic_mac_x64_HighSierra+.zip
       - name: Upload High Sierra+ package
         uses: actions/upload-artifact@v7
         with:
@@ -145,7 +166,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
       - name: Install dependencies
@@ -169,7 +190,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
       - name: Install dependencies
@@ -193,7 +214,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version: 'stable'
       - name: Install dependencies
@@ -216,6 +237,7 @@ jobs:
       - build-windows
       - build-macos-arm64
       - build-macos-x64
+      - build-macos-legacy
       - build-ubuntu-22
       - build-ubuntu-24
       - build-appimage

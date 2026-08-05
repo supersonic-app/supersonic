@@ -3,7 +3,7 @@ package dialogs
 import (
 	"fmt"
 
-	"github.com/dweymouth/supersonic/backend"
+	"github.com/supersonic-app/supersonic/backend"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"

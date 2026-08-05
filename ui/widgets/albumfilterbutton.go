@@ -16,10 +16,10 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	ttwidget "github.com/dweymouth/fyne-tooltip/widget"
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	"github.com/dweymouth/supersonic/sharedutil"
-	myTheme "github.com/dweymouth/supersonic/ui/theme"
-	"github.com/dweymouth/supersonic/ui/util"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/sharedutil"
+	myTheme "github.com/supersonic-app/supersonic/ui/theme"
+	"github.com/supersonic-app/supersonic/ui/util"
 )
 
 type AlbumFilterButton struct {
@@ -96,7 +96,11 @@ func (a *AlbumFilterButton) showFilterDialog() {
 	if a.dialog == nil {
 		filterDlg := NewAlbumFilterPopup(a)
 		filterDlg.OnChanged = a.onFilterChanged
-		a.dialog = widget.NewPopUp(filterDlg, fyne.CurrentApp().Driver().CanvasForObject(a))
+		cnv := fyne.CurrentApp().Driver().CanvasForObject(a)
+		if cnv == nil {
+			return
+		}
+		a.dialog = widget.NewPopUp(container.NewPadded(filterDlg), cnv)
 	}
 	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(a)
 	a.dialog.ShowAtPosition(fyne.NewPos(pos.X+a.Size().Width/2-a.dialog.MinSize().Width/2, pos.Y+a.Size().Height))

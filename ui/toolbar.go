@@ -7,10 +7,10 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-	"github.com/dweymouth/supersonic/ui/browsing"
-	"github.com/dweymouth/supersonic/ui/controller"
-	"github.com/dweymouth/supersonic/ui/layouts"
-	myTheme "github.com/dweymouth/supersonic/ui/theme"
+	"github.com/supersonic-app/supersonic/ui/browsing"
+	"github.com/supersonic-app/supersonic/ui/controller"
+	"github.com/supersonic-app/supersonic/ui/layouts"
+	myTheme "github.com/supersonic-app/supersonic/ui/theme"
 
 	ttwidget "github.com/dweymouth/fyne-tooltip/widget"
 )

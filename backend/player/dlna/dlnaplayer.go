@@ -16,13 +16,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	"github.com/dweymouth/supersonic/backend/player"
-	"github.com/dweymouth/supersonic/backend/util"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/supersonic-app/go-upnpcast/device"
 	"github.com/supersonic-app/go-upnpcast/services/avtransport"
 	"github.com/supersonic-app/go-upnpcast/services/renderingcontrol"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/backend/player"
+	"github.com/supersonic-app/supersonic/backend/util"
 )
 
 const (

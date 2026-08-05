@@ -2,11 +2,12 @@ package res
 
 const (
 	AppName          = "supersonic"
+	AppID            = "io.github.supersonic-app.supersonic"
 	DisplayName      = "Supersonic"
 	AppVersion       = "0.22.0"
 	AppVersionTag    = "v" + AppVersion
 	ConfigFile       = "config.toml"
-	GithubURL        = "https://github.com/dweymouth/supersonic"
+	GithubURL        = "https://github.com/supersonic-app/supersonic"
 	LatestReleaseURL = GithubURL + "/releases/latest"
 	KofiURL          = "https://ko-fi.com/dweymouth"
 	Copyright        = "Copyright © 2022–2026 Drew Weymouth and contributors"

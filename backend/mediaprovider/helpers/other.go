@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	"github.com/dweymouth/supersonic/sharedutil"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/sharedutil"
 )
 
 func GetSimilarSongsFallback(mp mediaprovider.MediaProvider, track *mediaprovider.Track, count int) []*mediaprovider.Track {

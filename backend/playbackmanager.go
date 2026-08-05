@@ -12,13 +12,13 @@ import (
 	"time"
 
 	"github.com/charlievieth/strcase"
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	"github.com/dweymouth/supersonic/backend/player"
-	"github.com/dweymouth/supersonic/backend/player/dlna"
-	"github.com/dweymouth/supersonic/backend/player/mpv"
-	"github.com/dweymouth/supersonic/sharedutil"
 	"github.com/supersonic-app/go-upnpcast/device"
 	"github.com/supersonic-app/go-upnpcast/services"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/backend/player"
+	"github.com/supersonic-app/supersonic/backend/player/dlna"
+	"github.com/supersonic-app/supersonic/backend/player/mpv"
+	"github.com/supersonic-app/supersonic/sharedutil"
 )
 
 // A high-level MediaProvider-aware playback engine, serves as an
@@ -112,7 +112,7 @@ func (p *PlaybackManager) addWfmImageJob(job *WaveformImageJob) {
 }
 
 func (p *PlaybackManager) addOnTrackChangeHook() {
-	// See https://github.com/dweymouth/supersonic/issues/483
+	// See https://github.com/supersonic-app/supersonic/issues/483
 	// On Windows, MPV sometimes fails to start playback when switching to a track
 	// with a different sample rate than the previous. If this is detected,
 	// send a command to the MPV player to force restart playback.
@@ -156,7 +156,7 @@ func (p *PlaybackManager) addOnTrackChangeHook() {
 		if runtime.GOOS != "windows" {
 			return
 		}
-		// workaround for https://github.com/dweymouth/supersonic/issues/483 (see above comment)
+		// workaround for https://github.com/supersonic-app/supersonic/issues/483 (see above comment)
 		if p.NowPlayingIndex() != p.engine.getPlayQueueLength() && p.PlaybackStatus().State == player.Playing {
 			p.lastPlayTime = 0
 			go func() {

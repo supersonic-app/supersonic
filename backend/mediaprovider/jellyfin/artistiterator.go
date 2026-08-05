@@ -4,9 +4,9 @@ import (
 	"slices"
 
 	"github.com/dweymouth/go-jellyfin"
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	"github.com/dweymouth/supersonic/backend/mediaprovider/helpers"
-	"github.com/dweymouth/supersonic/sharedutil"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider/helpers"
+	"github.com/supersonic-app/supersonic/sharedutil"
 )
 
 func (j *JellyfinMediaProvider) ArtistSortOrders() []string {

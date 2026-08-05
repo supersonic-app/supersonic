@@ -1,7 +1,7 @@
 package widgets
 
 import (
-	"github.com/dweymouth/supersonic/ui/theme"
+	"github.com/supersonic-app/supersonic/ui/theme"
 )
 
 type FavoriteIcon struct {

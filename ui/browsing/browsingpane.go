@@ -5,10 +5,10 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
-	"github.com/dweymouth/supersonic/backend"
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	"github.com/dweymouth/supersonic/ui/controller"
-	myTheme "github.com/dweymouth/supersonic/ui/theme"
+	"github.com/supersonic-app/supersonic/backend"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/ui/controller"
+	myTheme "github.com/supersonic-app/supersonic/ui/theme"
 )
 
 type Page interface {

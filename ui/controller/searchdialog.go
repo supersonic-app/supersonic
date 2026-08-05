@@ -4,16 +4,17 @@ import (
 	"log"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
-	"github.com/dweymouth/supersonic/backend"
-	"github.com/dweymouth/supersonic/backend/mediaprovider"
-	"github.com/dweymouth/supersonic/sharedutil"
-	"github.com/dweymouth/supersonic/ui/dialogs"
+	"github.com/supersonic-app/supersonic/backend"
+	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/sharedutil"
+	"github.com/supersonic-app/supersonic/ui/dialogs"
 )
 
 func (c *Controller) ShowQuickSearch() {
 	qs := dialogs.NewQuickSearch(c.App.ServerManager.Server, c.App.ImageManager)
-	pop := widget.NewModalPopUp(qs.SearchDialog, c.MainWindow.Canvas())
+	pop := widget.NewModalPopUp(container.NewPadded(qs.SearchDialog), c.MainWindow.Canvas())
 	qs.SetOnDismiss(func() {
 		pop.Hide()
 		c.doModalClosed()

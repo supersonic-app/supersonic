@@ -4,7 +4,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/lang"
 	"fyne.io/fyne/v2/widget"
-	"github.com/dweymouth/supersonic/ui/theme"
+	"github.com/supersonic-app/supersonic/ui/theme"
 )
 
 type SortChooserButton struct {
