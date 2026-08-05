@@ -9,6 +9,7 @@ void dockMenuBegin();
 void dockMenuAddItem(const char* title, int index);
 void dockMenuAddSeparator();
 void dockMenuCommit();
+void setDockIconVisible(int visible);
 */
 import "C"
 
@@ -28,6 +29,14 @@ func isRealQuit() bool {
 	return darwinQuitting
 }
 
+func setAppDockIconVisible(visible bool) {
+	cVisible := C.int(0)
+	if visible {
+		cVisible = 1
+	}
+	C.setDockIconVisible(cVisible)
+}
+
 func installReopenHandler(w fyne.Window) {
 	darwinAppDelegateReopenWindow = w
 	C.installReopenDelegate()
@@ -39,7 +48,10 @@ func appReopened() {
 		return
 	}
 	go func() {
-		fyne.Do(darwinAppDelegateReopenWindow.Show)
+		fyne.Do(func() {
+			setAppDockIconVisible(true)
+			darwinAppDelegateReopenWindow.Show()
+		})
 	}()
 }
 

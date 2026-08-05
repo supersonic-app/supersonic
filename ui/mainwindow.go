@@ -187,7 +187,7 @@ func NewMainWindow(fyneApp fyne.App, appName, displayAppName, appVersion string,
 	m.Window.SetCloseIntercept(func() {
 		m.SaveWindowSettings()
 		if (runtime.GOOS == "darwin" && !isRealQuit()) || (app.Config.Application.CloseToSystemTray && m.HaveSystemTray()) {
-			m.Window.Hide()
+			m.hideWindow()
 		} else {
 			m.Window.Close()
 		}
@@ -417,6 +417,18 @@ func (m *MainWindow) SetupSystemTrayMenu(appName string, fyneApp fyne.App) {
 	}
 }
 
+func (m *MainWindow) showWindow() {
+	setAppDockIconVisible(true)
+	m.Window.Show()
+}
+
+func (m *MainWindow) hideWindow() {
+	m.Window.Hide()
+	if runtime.GOOS == "darwin" && m.App.Config.Application.CloseToSystemTray && m.HaveSystemTray() {
+		setAppDockIconVisible(false)
+	}
+}
+
 func (m *MainWindow) createSystemTrayAndDockMenu(includeShowAndHide bool) *fyne.Menu {
 	menu := fyne.NewMenu("",
 		fyne.NewMenuItem(fmt.Sprintf("%s/%s", lang.L("Play"), lang.L("Pause")), func() {
@@ -443,8 +455,8 @@ func (m *MainWindow) createSystemTrayAndDockMenu(includeShowAndHide bool) *fyne.
 	)
 	if includeShowAndHide {
 		menu.Items = append(menu.Items, fyne.NewMenuItemSeparator())
-		menu.Items = append(menu.Items, fyne.NewMenuItem(lang.L("Show"), m.Window.Show))
-		menu.Items = append(menu.Items, fyne.NewMenuItem(lang.L("Hide"), m.Window.Hide))
+		menu.Items = append(menu.Items, fyne.NewMenuItem(lang.L("Show"), m.showWindow))
+		menu.Items = append(menu.Items, fyne.NewMenuItem(lang.L("Hide"), m.hideWindow))
 	}
 	return menu
 }
@@ -525,7 +537,7 @@ func (m *MainWindow) addShortcuts() {
 	})
 	m.Canvas().AddShortcut(&shortcuts.ShortcutCloseWindow, func(_ fyne.Shortcut) {
 		if runtime.GOOS == "darwin" || (m.App.Config.Application.CloseToSystemTray && m.HaveSystemTray()) {
-			m.Window.Hide()
+			m.hideWindow()
 		}
 	})
 
