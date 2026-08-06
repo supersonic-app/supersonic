@@ -61,6 +61,7 @@ type AppConfig struct {
 	ShowSidebar                 bool
 	SidebarWidthFraction        float64
 	SidebarTab                  string
+	HTTPProxy                   string // HTTP/HTTPS proxy URL with optional auth (http://user:pass@proxy:8080)
 
 	PreventScreensaverOnNowPlayingPage bool
 
@@ -136,14 +137,13 @@ type LocalPlaybackConfig struct {
 	InMemoryCacheSizeMB   int
 	Volume                int
 	EqualizerEnabled      bool
-	EqualizerType         string    // "ISO10Band" or "ISO15Band"
+	EqualizerType         string // "ISO10Band" or "ISO15Band"
 	EqualizerPreamp       float64
 	GraphicEqualizerBands []float64
 	ActiveEQPresetName    string // Name of currently selected EQ preset
 	AutoEQProfilePath     string // Path to applied AutoEQ profile (e.g., "oratory1990/over-ear/Sennheiser HD 650")
 	AutoEQProfileName     string // Display name of applied profile (e.g., "Sennheiser HD 650")
 	PauseFade             bool
-	HTTPProxy             string // HTTP/HTTPS proxy URL with optional auth (http://user:pass@proxy:8080)
 }
 
 type ScrobbleConfig struct {

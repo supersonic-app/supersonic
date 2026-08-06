@@ -11,7 +11,7 @@ func TestHTTPProxyConfigSerialization(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.toml")
 
 	configContent := `
-[LocalPlayback]
+[Application]
 HTTPProxy = "http://user:pass@proxy:8080"
 `
 	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
@@ -23,8 +23,8 @@ HTTPProxy = "http://user:pass@proxy:8080"
 		t.Fatalf("Failed to read config file: %v", err)
 	}
 
-	if cfg.LocalPlayback.HTTPProxy != "http://user:pass@proxy:8080" {
-		t.Errorf("Expected HTTPProxy 'http://user:pass@proxy:8080', got '%s'", cfg.LocalPlayback.HTTPProxy)
+	if cfg.Application.HTTPProxy != "http://user:pass@proxy:8080" {
+		t.Errorf("Expected HTTPProxy 'http://user:pass@proxy:8080', got '%s'", cfg.Application.HTTPProxy)
 	}
 }
 
@@ -33,8 +33,8 @@ func TestHTTPProxyConfigDefault(t *testing.T) {
 	configPath := filepath.Join(tempDir, "config.toml")
 
 	configContent := `
-[LocalPlayback]
-Volume = 50
+[Application]
+Language = "auto"
 `
 	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
 		t.Fatalf("Failed to write config file: %v", err)
@@ -45,7 +45,7 @@ Volume = 50
 		t.Fatalf("Failed to read config file: %v", err)
 	}
 
-	if cfg.LocalPlayback.HTTPProxy != "" {
-		t.Errorf("Expected empty HTTPProxy, got '%s'", cfg.LocalPlayback.HTTPProxy)
+	if cfg.Application.HTTPProxy != "" {
+		t.Errorf("Expected empty HTTPProxy, got '%s'", cfg.Application.HTTPProxy)
 	}
 }

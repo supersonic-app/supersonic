@@ -188,7 +188,7 @@ func (s *ServerManager) connect(connection ServerConnection, password string) (m
 		connection.Hostname = NormalizeServerURL(connection.Hostname)
 		connection.AltHostname = NormalizeServerURL(connection.AltHostname)
 	}
-	httpProxy := resolveHTTPProxy(s.config.LocalPlayback)
+	httpProxy := resolveHTTPProxy(s.config.Application)
 
 	if connection.ServerType == ServerTypeJellyfin {
 		client, err := jellyfin.NewClient(connection.Hostname, res.AppName, res.AppVersion, jellyfin.WithTimeout(timeout))

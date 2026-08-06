@@ -367,9 +367,9 @@ func (a *App) callOnExit() error {
 	return nil
 }
 
-// resolveHTTPProxy returns the proxy URL to use for MPV playback.
-// Priority: config file > https_proxy env > HTTPS_PROXY env > empty string
-func resolveHTTPProxy(cfg LocalPlaybackConfig) string {
+// resolveHTTPProxy returns the application-wide HTTP proxy URL.
+// Priority: config file > https_proxy env > HTTPS_PROXY env > empty string.
+func resolveHTTPProxy(cfg AppConfig) string {
 	if cfg.HTTPProxy != "" {
 		return cfg.HTTPProxy
 	}
@@ -387,8 +387,8 @@ func (a *App) initMPV() error {
 	c := a.Config.LocalPlayback
 	c.InMemoryCacheSizeMB = clamp(c.InMemoryCacheSizeMB, 10, 500)
 
-	// Get proxy config: config file first, environment variable as fallback
-	httpProxy := resolveHTTPProxy(c)
+	// Get the application proxy config, falling back to environment variables.
+	httpProxy := resolveHTTPProxy(a.Config.Application)
 
 	// Log proxy configuration for debugging (redact credentials)
 	if httpProxy != "" {
@@ -674,14 +674,12 @@ func (a *App) LoadSavedPlayQueue() error {
 	if isShuffle {
 		unshuffledQueueFilePath := path.Join(a.configDir, savedUnshuffledQueueFile)
 		unshuffledPlayQueue, err = LoadPlayQueue(unshuffledQueueFilePath, a.ServerManager, false)
-
 		if err != nil {
 			return err
 		}
 
 		shuffledQueueFilePath := path.Join(a.configDir, savedShuffledQueueFile)
 		shuffledPlayQueue, err = LoadPlayQueue(shuffledQueueFilePath, a.ServerManager, false)
-
 		if err != nil {
 			return err
 		}
