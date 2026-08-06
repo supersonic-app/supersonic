@@ -558,6 +558,10 @@ func (p *Player) eventHandler(ctx context.Context) {
 				}
 				p.InvokeOnTrackChange()
 				p.fileLoadedSig.Signal()
+			case mpv.EVENT_END_FILE:
+				if err := playbackErrorFromEndFileEvent(e.Data, p.GetStatus()); err != nil {
+					p.InvokeOnPlaybackError(err)
+				}
 			case mpv.EVENT_IDLE:
 				p.status.Duration = 0
 				p.status.TimePos = 0
