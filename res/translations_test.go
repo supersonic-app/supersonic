@@ -1,32 +1,29 @@
 package res
 
-import "testing"
+import (
+	"strings"
+	"testing"
 
-func TestTranslationFilesUseBCP47Names(t *testing.T) {
-	tests := []struct {
-		name                string
-		translationFileName string
-	}{
-		{name: "pt_BR", translationFileName: "pt-BR.json"},
-		{name: "zhHans", translationFileName: "zh-Hans.json"},
-		{name: "zhHant", translationFileName: "zh-Hant.json"},
-	}
+	"golang.org/x/text/language"
+)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			for _, info := range TranslationsInfo {
-				if info.Name != tt.name {
-					continue
-				}
-				if info.TranslationFileName != tt.translationFileName {
-					t.Fatalf("TranslationFileName for %q = %q, want %q", tt.name, info.TranslationFileName, tt.translationFileName)
-				}
-				if _, err := Translations.ReadFile("translations/" + info.TranslationFileName); err != nil {
-					t.Fatalf("Translations.ReadFile(%q) returned error: %v", info.TranslationFileName, err)
-				}
-				return
+func TestTranslationFilesUseCanonicalBCP47Names(t *testing.T) {
+	for _, info := range TranslationsInfo {
+		t.Run(info.Name, func(t *testing.T) {
+			localeName, ok := strings.CutSuffix(info.TranslationFileName, ".json")
+			if !ok {
+				t.Fatalf("TranslationFileName for %q = %q, want a .json file", info.Name, info.TranslationFileName)
 			}
-			t.Fatalf("TranslationsInfo missing entry with Name=%q", tt.name)
+			tag, err := language.Parse(localeName)
+			if err != nil {
+				t.Fatalf("TranslationFileName for %q has invalid locale %q: %v", info.Name, localeName, err)
+			}
+			if got := tag.String(); got != localeName {
+				t.Fatalf("TranslationFileName for %q = %q, want canonical locale %q", info.Name, localeName, got)
+			}
+			if _, err := Translations.ReadFile("translations/" + info.TranslationFileName); err != nil {
+				t.Fatalf("Translations.ReadFile(%q) returned error: %v", info.TranslationFileName, err)
+			}
 		})
 	}
 }
