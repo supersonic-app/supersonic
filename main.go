@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"image/png"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"runtime"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/supersonic-app/supersonic/backend"
@@ -20,7 +22,6 @@ import (
 	myTheme "github.com/supersonic-app/supersonic/ui/theme"
 	"github.com/supersonic-app/supersonic/ui/util"
 	"golang.org/x/term"
-	"golang.org/x/text/language"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -28,21 +29,49 @@ import (
 	"fyne.io/fyne/v2/lang"
 )
 
-func addTranslationsForConfiguredLanguage(content []byte) error {
+func addTranslationsForConfiguredLanguage(content []byte, tr res.TranslationInfo) error {
 	systemLocale := lang.SystemLocale()
 	if err := lang.AddTranslations(fyne.NewStaticResource(systemLocale.LanguageString()+".json", content)); err != nil {
 		return err
 	}
 
-	// Fyne may localize Chinese using its inferred script bundle (zh-Hans or
-	// zh-Hant) instead of the language-only bundle used above.
-	tag := language.Make(systemLocale.String())
-	base, _ := tag.Base()
-	script, _ := tag.Script()
-	if script.String() == "Zzzz" {
+	locale := strings.TrimSuffix(tr.TranslationFileName, ".json")
+	var aliasLocale fyne.Locale
+	switch locale {
+	case "zh-Hans":
+		aliasLocale = "zh-Hant"
+	case "zh-Hant":
+		aliasLocale = "zh-Hans"
+	default:
 		return nil
 	}
-	return lang.AddTranslationsForLocale(content, fyne.Locale(base.String()+"-"+script.String()))
+
+	// Register the full translation under its canonical locale. Also register
+	// translated application messages under the other Chinese script locale so
+	// an explicit choice overrides the OS script. Identity translations are
+	// omitted from the alias to preserve Fyne's built-in translations.
+	if err := lang.AddTranslationsForLocale(content, fyne.Locale(locale)); err != nil {
+		return err
+	}
+	aliasContent, err := withoutIdentityTranslations(content)
+	if err != nil {
+		return err
+	}
+	return lang.AddTranslationsForLocale(aliasContent, aliasLocale)
+}
+
+func withoutIdentityTranslations(content []byte) ([]byte, error) {
+	var messages map[string]json.RawMessage
+	if err := json.Unmarshal(content, &messages); err != nil {
+		return nil, err
+	}
+	for key, raw := range messages {
+		var translation string
+		if err := json.Unmarshal(raw, &translation); err == nil && translation == key {
+			delete(messages, key)
+		}
+	}
+	return json.Marshal(messages)
 }
 
 func main() {
@@ -97,7 +126,7 @@ func main() {
 		if err == nil {
 			// Register the configured translation for the system locale so an
 			// explicit language choice overrides the OS language.
-			if err := addTranslationsForConfiguredLanguage(content); err != nil {
+			if err := addTranslationsForConfiguredLanguage(content, tr); err != nil {
 				log.Printf("Error loading configured translation %s: %s\n", tr.TranslationFileName, err.Error())
 			} else {
 				success = true
