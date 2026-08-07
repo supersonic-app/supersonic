@@ -57,6 +57,10 @@ func main() {
 		return
 	}
 
+	if runtime.GOOS == "linux" {
+		ui.SetCursorThemeEnvIfMissing()
+	}
+
 	if myApp.Config.Application.UIScaleSize == "Smaller" {
 		os.Setenv("FYNE_SCALE", "0.85")
 	} else if myApp.Config.Application.UIScaleSize == "Larger" {
