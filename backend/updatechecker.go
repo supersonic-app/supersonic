@@ -18,13 +18,15 @@ type UpdateChecker struct {
 	latestReleaseURL string
 	appVersionTag    string
 	lastCheckedTag   *string
+	httpClient       *http.Client
 }
 
-func NewUpdateChecker(appVersionTag, latestReleaseURL string, lastCheckedTag *string) UpdateChecker {
+func NewUpdateChecker(appVersionTag, latestReleaseURL string, lastCheckedTag *string, httpClient *http.Client) UpdateChecker {
 	return UpdateChecker{
 		appVersionTag:    appVersionTag,
 		latestReleaseURL: latestReleaseURL,
 		lastCheckedTag:   lastCheckedTag,
+		httpClient:       httpClient,
 	}
 }
 
@@ -66,11 +68,12 @@ func (u *UpdateChecker) checkForUpdate() {
 }
 
 func (u *UpdateChecker) CheckLatestVersionTag() string {
-	resp, err := http.Head(u.latestReleaseURL)
+	resp, err := u.httpClient.Head(u.latestReleaseURL)
 	if err != nil {
 		log.Printf("failed to check for newest version: %s", err.Error())
 		return ""
 	}
+	defer resp.Body.Close()
 	url := resp.Request.URL.String()
 	url = strings.TrimSuffix(url, "/")
 	idx := strings.LastIndex(url, "/")

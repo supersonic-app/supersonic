@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net/http"
 	"runtime"
 	"slices"
 	"sync"
@@ -24,12 +25,13 @@ import (
 // A high-level MediaProvider-aware playback engine, serves as an
 // intermediary between the frontend and various Player backends.
 type PlaybackManager struct {
-	engine   *playbackEngine
-	wfmGen   *WaveformImageGenerator
-	cache    *AudioCache
-	cmdQueue *playbackCommandQueue
-	appCfg   *AppConfig
-	cfg      *PlaybackConfig
+	engine            *playbackEngine
+	wfmGen            *WaveformImageGenerator
+	cache             *AudioCache
+	cmdQueue          *playbackCommandQueue
+	appCfg            *AppConfig
+	musicServerClient *http.Client
+	cfg               *PlaybackConfig
 
 	// CoverArtPathFn returns a local filesystem path to the cached cover
 	// art image for the given CoverArtID. Used by DLNA cast so the
@@ -76,16 +78,18 @@ func NewPlaybackManager(
 	scrobbleCfg *ScrobbleConfig,
 	transcodeCfg *TranscodingConfig,
 	appCfg *AppConfig,
+	musicServerClient *http.Client,
 ) *PlaybackManager {
 	e := NewPlaybackEngine(ctx, s, c, p, playbackCfg, scrobbleCfg, transcodeCfg)
 	q := NewCommandQueue()
 	pm := &PlaybackManager{
-		engine:      e,
-		cmdQueue:    q,
-		appCfg:      appCfg,
-		cfg:         playbackCfg,
-		localPlayer: p,
-		cache:       c,
+		engine:            e,
+		cmdQueue:          q,
+		appCfg:            appCfg,
+		musicServerClient: musicServerClient,
+		cfg:               playbackCfg,
+		localPlayer:       p,
+		cache:             c,
 	}
 	if c != nil {
 		pm.wfmGen = NewWaveformImageGenerator(c)
@@ -261,7 +265,7 @@ func (p *PlaybackManager) scanRemotePlayers(ctx context.Context, waitSec int) {
 			URL:      d.URL,
 			Protocol: "DLNA",
 			new: func() (player.BasePlayer, error) {
-				return dlna.NewDLNAPlayer(d, coverArtPathFn)
+				return dlna.NewDLNAPlayer(d, coverArtPathFn, p.musicServerClient)
 			},
 		}
 		discovered = append(discovered, rp)
@@ -568,9 +572,8 @@ func (p *PlaybackManager) PlayRandomSongs(genreName string) error {
 		}
 		return sharedutil.FilterSlice(tr, func(t *mediaprovider.Track) bool {
 			skipKwd := p.cfg.SkipKeywordWhenShuffling
-			include :=
-				(skipKwd == "" || !strcase.Contains(t.Title, skipKwd)) &&
-					(!p.cfg.SkipOneStarWhenShuffling || t.Rating != 1)
+			include := (skipKwd == "" || !strcase.Contains(t.Title, skipKwd)) &&
+				(!p.cfg.SkipOneStarWhenShuffling || t.Rating != 1)
 			return include
 		}), nil
 	})
@@ -825,9 +828,8 @@ func (p *PlaybackManager) enqueueAutoplayTracks() {
 
 	filterAutoplayTracks := func(tracks []*mediaprovider.Track) []*mediaprovider.Track {
 		return sharedutil.FilterSlice(tracks, func(t *mediaprovider.Track) bool {
-			shouldSkip :=
-				(p.cfg.SkipOneStarWhenShuffling && t.Rating == 1) ||
-					(p.cfg.SkipKeywordWhenShuffling != "" && strcase.Contains(t.Title, p.cfg.SkipKeywordWhenShuffling))
+			shouldSkip := (p.cfg.SkipOneStarWhenShuffling && t.Rating == 1) ||
+				(p.cfg.SkipKeywordWhenShuffling != "" && strcase.Contains(t.Title, p.cfg.SkipKeywordWhenShuffling))
 			recentlyPlayed := slices.ContainsFunc(queue, func(i mediaprovider.MediaItem) bool {
 				return i.Metadata().Type == mediaprovider.MediaItemTypeTrack && i.Metadata().ID == t.ID
 			})

@@ -2,8 +2,11 @@ package backend
 
 import (
 	"crypto/tls"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -54,7 +57,7 @@ func TestNormalizeJellyfinURL(t *testing.T) {
 	}
 }
 
-func TestNewHTTPClient_ProxyOnly(t *testing.T) {
+func TestAppHTTPClientFactoryConfiguredProxy(t *testing.T) {
 	testNewHTTPClient(t, newHTTPClientTestCase{
 		timeout:     3 * time.Second,
 		proxy:       "http://proxy.example.com:8080",
@@ -63,7 +66,7 @@ func TestNewHTTPClient_ProxyOnly(t *testing.T) {
 	})
 }
 
-func TestNewHTTPClient_ProxyAndSkipSSL(t *testing.T) {
+func TestAppHTTPClientFactoryConfiguredProxyAndSkipSSL(t *testing.T) {
 	testNewHTTPClient(t, newHTTPClientTestCase{
 		timeout:     3 * time.Second,
 		proxy:       "http://proxy.example.com:8080",
@@ -73,7 +76,7 @@ func TestNewHTTPClient_ProxyAndSkipSSL(t *testing.T) {
 	})
 }
 
-func TestNewHTTPClient_SkipSSLOnly(t *testing.T) {
+func TestAppHTTPClientFactorySkipSSLOnly(t *testing.T) {
 	testNewHTTPClient(t, newHTTPClientTestCase{
 		timeout:     3 * time.Second,
 		skipSSL:     true,
@@ -81,7 +84,7 @@ func TestNewHTTPClient_SkipSSLOnly(t *testing.T) {
 	})
 }
 
-func TestNewHTTPClient_InvalidProxy(t *testing.T) {
+func TestAppHTTPClientFactoryInvalidProxy(t *testing.T) {
 	testNewHTTPClient(t, newHTTPClientTestCase{
 		timeout:     3 * time.Second,
 		proxy:       "http://%zz",
@@ -89,10 +92,9 @@ func TestNewHTTPClient_InvalidProxy(t *testing.T) {
 	})
 }
 
-func TestNewHTTPClient_EmptyProxy(t *testing.T) {
+func TestAppHTTPClientFactoryUsesEnvironmentProxyWithoutConfiguration(t *testing.T) {
 	testNewHTTPClient(t, newHTTPClientTestCase{
 		timeout:     3 * time.Second,
-		proxy:       "",
 		wantSkipSSL: false,
 	})
 }
@@ -108,7 +110,7 @@ type newHTTPClientTestCase struct {
 func testNewHTTPClient(t *testing.T, tc newHTTPClientTestCase) {
 	t.Helper()
 
-	client := newHTTPClient(tc.timeout, tc.proxy, tc.skipSSL)
+	client := newAppHTTPClientFactory(tc.proxy).NewClient(tc.timeout, tc.skipSSL)
 
 	if client.Timeout != tc.timeout {
 		t.Fatalf("client timeout = %s, want %s", client.Timeout, tc.timeout)
@@ -123,22 +125,13 @@ func testNewHTTPClient(t *testing.T, tc newHTTPClientTestCase) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	req := &http.Request{URL: requestURL}
 
-	if tc.wantProxy == "" {
-		if transport.Proxy != nil {
-			proxyURL, err := transport.Proxy(&http.Request{URL: requestURL})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if proxyURL != nil {
-				t.Fatalf("proxy URL = %q, want nil", proxyURL.String())
-			}
-		}
-	} else {
+	if tc.wantProxy != "" {
 		if transport.Proxy == nil {
-			t.Fatal("transport Proxy = nil, want proxy function")
+			t.Fatal("transport Proxy = nil, want configured proxy function")
 		}
-		proxyURL, err := transport.Proxy(&http.Request{URL: requestURL})
+		proxyURL, err := transport.Proxy(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -147,6 +140,26 @@ func testNewHTTPClient(t *testing.T, tc newHTTPClientTestCase) {
 		}
 		if got := proxyURL.String(); got != tc.wantProxy {
 			t.Fatalf("proxy URL = %q, want %q", got, tc.wantProxy)
+		}
+	} else if tc.proxy != "" {
+		if transport.Proxy != nil {
+			t.Fatal("transport Proxy is set for an invalid proxy configuration")
+		}
+	} else {
+		defaultTransport := http.DefaultTransport.(*http.Transport)
+		if transport.Proxy == nil || defaultTransport.Proxy == nil {
+			t.Fatal("transport Proxy = nil, want default environment proxy semantics")
+		}
+		gotProxy, gotErr := transport.Proxy(req)
+		wantProxy, wantErr := defaultTransport.Proxy(req)
+		if (gotErr == nil) != (wantErr == nil) || (gotErr != nil && gotErr.Error() != wantErr.Error()) {
+			t.Fatalf("environment proxy error = %v, want %v", gotErr, wantErr)
+		}
+		if (gotProxy == nil) != (wantProxy == nil) {
+			t.Fatalf("environment proxy = %v, want %v", gotProxy, wantProxy)
+		}
+		if gotProxy != nil && gotProxy.String() != wantProxy.String() {
+			t.Fatalf("environment proxy = %q, want %q", gotProxy, wantProxy)
 		}
 	}
 
@@ -161,10 +174,8 @@ func testNewHTTPClient(t *testing.T, tc newHTTPClientTestCase) {
 	}
 }
 
-func TestApplyTransportSettingsIgnoresInvalidProxyAndPreservesTimeout(t *testing.T) {
-	client := &http.Client{Timeout: 7 * time.Second}
-
-	applyTransportSettings(client, "http://%zz", true)
+func TestAppHTTPClientFactoryIgnoresInvalidProxyAndPreservesTimeout(t *testing.T) {
+	client := newAppHTTPClientFactory("http://%zz").NewClient(7*time.Second, true)
 
 	if client.Timeout != 7*time.Second {
 		t.Fatalf("client timeout = %s, want %s", client.Timeout, 7*time.Second)
@@ -173,38 +184,31 @@ func TestApplyTransportSettingsIgnoresInvalidProxyAndPreservesTimeout(t *testing
 	if !ok {
 		t.Fatalf("client transport = %T, want *http.Transport", client.Transport)
 	}
-	requestURL, err := url.Parse("http://music.example.com/rest/ping")
-	if err != nil {
-		t.Fatal(err)
-	}
 	if transport.Proxy != nil {
-		proxyURL, err := transport.Proxy(&http.Request{URL: requestURL})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if proxyURL != nil {
-			t.Fatalf("proxy URL = %q for invalid proxy configuration, want nil", proxyURL.String())
-		}
+		t.Fatal("transport Proxy is set for an invalid proxy configuration")
 	}
 	if transport.TLSClientConfig == nil || !transport.TLSClientConfig.InsecureSkipVerify {
 		t.Fatal("transport TLSClientConfig.InsecureSkipVerify = false, want true")
 	}
 }
 
-func TestApplyTransportSettingsDoesNotSetTLSConfigWhenSkipSSLVerifyDisabled(t *testing.T) {
-	client := &http.Client{}
-	client.Transport = &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}
+func TestAppHTTPClientFactoryPreservesExistingTransportWithoutProxyConfiguration(t *testing.T) {
+	existing := &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}
+	client := &http.Client{Transport: existing}
 
-	applyTransportSettings(client, "", false)
+	newAppHTTPClientFactory("").configureHTTPClient(client, false)
 
 	transport, ok := client.Transport.(*http.Transport)
 	if !ok {
 		t.Fatalf("client transport = %T, want *http.Transport", client.Transport)
 	}
-	if transport.Proxy != nil {
-		t.Fatal("transport Proxy is set without a proxy URL, want nil")
+	if transport == existing {
+		t.Fatal("transport was reused, want cloned transport")
 	}
-	if transport.TLSClientConfig == nil {
+	if transport.Proxy != nil {
+		t.Fatal("transport Proxy is set without a configured proxy")
+	}
+	if transport.TLSClientConfig == nil || transport.TLSClientConfig.MinVersion != tls.VersionTLS12 {
 		t.Fatal("transport TLSClientConfig was not preserved from original transport")
 	}
 	if transport.TLSClientConfig.InsecureSkipVerify {
@@ -212,14 +216,14 @@ func TestApplyTransportSettingsDoesNotSetTLSConfigWhenSkipSSLVerifyDisabled(t *t
 	}
 }
 
-func TestApplyTransportSettingsClonesExistingTransport(t *testing.T) {
+func TestAppHTTPClientFactoryClonesExistingTransport(t *testing.T) {
 	existing := &http.Transport{
 		MaxIdleConns:        42,
 		MaxIdleConnsPerHost: 7,
 	}
 	client := &http.Client{Transport: existing}
 
-	applyTransportSettings(client, "http://proxy.example.com:8080", true)
+	newAppHTTPClientFactory("http://proxy.example.com:8080").configureHTTPClient(client, true)
 
 	transport, ok := client.Transport.(*http.Transport)
 	if !ok {
@@ -236,5 +240,44 @@ func TestApplyTransportSettingsClonesExistingTransport(t *testing.T) {
 	}
 	if transport.TLSClientConfig == nil || !transport.TLSClientConfig.InsecureSkipVerify {
 		t.Fatal("transport TLSClientConfig.InsecureSkipVerify = false, want true")
+	}
+}
+
+func TestAppHTTPClientFactoryRoutesThroughConfiguredProxy(t *testing.T) {
+	var requestedURL string
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedURL = r.URL.String()
+		_, _ = io.WriteString(w, "proxied")
+	}))
+	defer proxy.Close()
+
+	client := newAppHTTPClientFactory(proxy.URL).NewClient(time.Second, false)
+	resp, err := client.Get("http://music.example.test/stream")
+	if err != nil {
+		t.Fatalf("request through configured proxy: %v", err)
+	}
+	defer resp.Body.Close()
+	if _, err := io.ReadAll(resp.Body); err != nil {
+		t.Fatalf("reading proxy response: %v", err)
+	}
+	if requestedURL != "http://music.example.test/stream" {
+		t.Fatalf("proxy request URL = %q, want music server URL", requestedURL)
+	}
+}
+
+func TestAppHTTPClientFactoryDoesNotMutateDefaultTransport(t *testing.T) {
+	defaultTransport := http.DefaultTransport.(*http.Transport)
+	originalProxy := defaultTransport.Proxy
+	originalTLSConfig := defaultTransport.TLSClientConfig
+
+	client := newAppHTTPClientFactory("http://proxy.example.com:8080").NewClient(time.Second, true)
+	if client.Transport == defaultTransport {
+		t.Fatal("client reused http.DefaultTransport")
+	}
+	if originalProxy != nil && reflect.ValueOf(defaultTransport.Proxy).Pointer() != reflect.ValueOf(originalProxy).Pointer() {
+		t.Fatal("http.DefaultTransport Proxy was modified")
+	}
+	if defaultTransport.TLSClientConfig != originalTLSConfig {
+		t.Fatal("http.DefaultTransport TLSClientConfig was modified")
 	}
 }

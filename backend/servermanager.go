@@ -2,12 +2,9 @@ package backend
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -31,18 +28,20 @@ type ServerManager struct {
 	appName           string
 	appVersion        string
 	config            *Config
+	httpClients       *appHTTPClientFactory
 	onServerConnected []func(*ServerConfig)
 	onLogout          []func()
 }
 
 var ErrUnreachable = errors.New("server is unreachable")
 
-func NewServerManager(appName, appVersion string, config *Config, useKeyring bool) *ServerManager {
+func NewServerManager(appName, appVersion string, config *Config, useKeyring bool, httpClients *appHTTPClientFactory) *ServerManager {
 	return &ServerManager{
-		appName:    appName,
-		appVersion: appVersion,
-		config:     config,
-		useKeyring: useKeyring,
+		appName:     appName,
+		appVersion:  appVersion,
+		config:      config,
+		useKeyring:  useKeyring,
+		httpClients: httpClients,
 	}
 }
 
@@ -188,26 +187,23 @@ func (s *ServerManager) connect(connection ServerConnection, password string) (m
 		connection.Hostname = NormalizeServerURL(connection.Hostname)
 		connection.AltHostname = NormalizeServerURL(connection.AltHostname)
 	}
-	httpProxy := resolveHTTPProxy(s.config.Application)
 
 	if connection.ServerType == ServerTypeJellyfin {
-		client, err := jellyfin.NewClient(connection.Hostname, res.AppName, res.AppVersion, jellyfin.WithTimeout(timeout))
+		client, err := jellyfin.NewClient(connection.Hostname, res.AppName, res.AppVersion, jellyfin.WithHTTPClient(s.httpClients.NewClient(timeout, connection.SkipSSLVerify)))
 		if err != nil {
 			log.Printf("error creating Jellyfin client: %s", err.Error())
 			return nil, err
 		}
-		applyTransportSettings(client.HTTPClient, httpProxy, connection.SkipSSLVerify)
 		cli = &jellyfinMP.JellyfinServer{
 			Client: *client,
 		}
 
 		if connection.AltHostname != "" {
-			altClient, err := jellyfin.NewClient(connection.AltHostname, res.AppName, res.AppVersion, jellyfin.WithTimeout(timeout))
+			altClient, err := jellyfin.NewClient(connection.AltHostname, res.AppName, res.AppVersion, jellyfin.WithHTTPClient(s.httpClients.NewClient(timeout, connection.SkipSSLVerify)))
 			if err != nil {
 				log.Printf("error creating Jellyfin alternative client: %s", err.Error())
 				return nil, err
 			}
-			applyTransportSettings(altClient.HTTPClient, httpProxy, connection.SkipSSLVerify)
 			altCli = &jellyfinMP.JellyfinServer{
 				Client: *altClient,
 			}
@@ -217,7 +213,7 @@ func (s *ServerManager) connect(connection ServerConnection, password string) (m
 		cli = &subsonicMP.SubsonicServer{
 			Client: subsonic.Client{
 				UserAgent:    ua,
-				Client:       newHTTPClient(timeout, httpProxy, connection.SkipSSLVerify),
+				Client:       s.httpClients.NewClient(timeout, connection.SkipSSLVerify),
 				BaseUrl:      connection.Hostname,
 				User:         connection.Username,
 				PasswordAuth: connection.LegacyAuth,
@@ -228,7 +224,7 @@ func (s *ServerManager) connect(connection ServerConnection, password string) (m
 		altCli = &subsonicMP.SubsonicServer{
 			Client: subsonic.Client{
 				UserAgent:    ua,
-				Client:       newHTTPClient(timeout, httpProxy, connection.SkipSSLVerify),
+				Client:       s.httpClients.NewClient(timeout, connection.SkipSSLVerify),
 				BaseUrl:      connection.AltHostname,
 				User:         connection.Username,
 				PasswordAuth: connection.LegacyAuth,
@@ -280,39 +276,6 @@ func (s *ServerManager) connect(connection ServerConnection, password string) (m
 		}
 		return cli, res.err
 	}
-}
-
-func newHTTPClient(timeout time.Duration, proxyURL string, skipSSLVerify bool) *http.Client {
-	client := &http.Client{Timeout: timeout}
-	applyTransportSettings(client, proxyURL, skipSSLVerify)
-	return client
-}
-
-func applyTransportSettings(cli *http.Client, proxyURL string, skipSSLVerify bool) {
-	var transport *http.Transport
-	if cli.Transport != nil {
-		if t, ok := cli.Transport.(*http.Transport); ok {
-			transport = t.Clone()
-		} else {
-			transport = http.DefaultTransport.(*http.Transport).Clone()
-		}
-	} else {
-		transport = http.DefaultTransport.(*http.Transport).Clone()
-	}
-
-	if proxyURL != "" {
-		proxy, err := url.Parse(proxyURL)
-		if err != nil {
-			log.Printf("Warning: invalid proxy URL %q, ignoring proxy: %s", redactProxyURL(proxyURL), err.Error())
-		} else {
-			transport.Proxy = http.ProxyURL(proxy)
-			log.Printf("Setting API client proxy: %s", redactProxyURL(proxyURL))
-		}
-	}
-	if skipSSLVerify {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	}
-	cli.Transport = transport
 }
 
 func (a *ServerManager) GetServer() mediaprovider.MediaProvider {

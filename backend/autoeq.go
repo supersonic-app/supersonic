@@ -56,8 +56,9 @@ type AutoEQProfileMetadata struct {
 
 // AutoEQManager manages fetching and caching of AutoEQ profiles
 type AutoEQManager struct {
-	cachePath string
-	timeout   time.Duration
+	cachePath  string
+	timeout    time.Duration
+	httpClient *http.Client
 
 	// Memory cache (LRU)
 	memCache      map[string]*memoryCacheEntry
@@ -76,12 +77,13 @@ type memoryCacheEntry struct {
 }
 
 // NewAutoEQManager creates a new AutoEQ manager
-func NewAutoEQManager(cachePath string, timeout time.Duration) *AutoEQManager {
+func NewAutoEQManager(cachePath string, timeout time.Duration, httpClient *http.Client) *AutoEQManager {
 	configdir.MakePath(cachePath)
 	log.Printf("Initializing AutoEQ manager: cache=%s, timeout=%v", cachePath, timeout)
 	return &AutoEQManager{
 		cachePath:   cachePath,
 		timeout:     timeout,
+		httpClient:  httpClient,
 		memCache:    make(map[string]*memoryCacheEntry),
 		memCacheLRU: make([]string, 0, maxMemoryCacheSize),
 	}
@@ -174,7 +176,7 @@ func (m *AutoEQManager) fetchIndexFromNetwork(ctx context.Context) ([]AutoEQProf
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := m.httpClient.Do(req)
 	if err != nil {
 		log.Printf("HTTP request failed: %v", err)
 		return nil, fmt.Errorf("fetching index: %w", err)
@@ -369,7 +371,7 @@ func (m *AutoEQManager) fetchProfileFromNetwork(ctx context.Context, path string
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := m.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetching profile: %w", err)
 	}
@@ -391,8 +393,10 @@ func (m *AutoEQManager) fetchProfileFromNetwork(ctx context.Context, path string
 // Preamp: -6.0 dB
 // Filter 1: ON PK Fc 31 Hz Gain 5.0 dB Q 0.70
 // ... (10 filters total)
-var preampRegex = regexp.MustCompile(`Preamp:\s*([-+]?\d+\.?\d*)\s*dB`)
-var filterRegex = regexp.MustCompile(`Filter\s+\d+:.*?Fc\s+(\d+)\s+Hz.*?Gain\s+([-+]?\d+\.?\d*)\s*dB`)
+var (
+	preampRegex = regexp.MustCompile(`Preamp:\s*([-+]?\d+\.?\d*)\s*dB`)
+	filterRegex = regexp.MustCompile(`Filter\s+\d+:.*?Fc\s+(\d+)\s+Hz.*?Gain\s+([-+]?\d+\.?\d*)\s*dB`)
+)
 
 func (m *AutoEQManager) parseProfile(path string, r io.Reader) (*AutoEQProfile, error) {
 	data, err := io.ReadAll(r)
