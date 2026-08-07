@@ -42,6 +42,7 @@ var _ mediaprovider.MediaProvider = (*JellyfinMediaProvider)(nil)
 
 type JellyfinMediaProvider struct {
 	client          *jellyfin.Client
+	downloadClient  *http.Client
 	prefetchCoverCB func(coverArtID string)
 
 	currentLibraryID string
@@ -51,9 +52,13 @@ type JellyfinMediaProvider struct {
 }
 
 func newJellyfinMediaProvider(cli *jellyfin.Client) mediaprovider.MediaProvider {
+	downloadClient := *cli.HTTPClient
+	downloadClient.Timeout = 0
+
 	return &JellyfinMediaProvider{
-		client:       cli,
-		genresCached: make([]*mediaprovider.Genre, 0),
+		client:         cli,
+		downloadClient: &downloadClient,
+		genresCached:   make([]*mediaprovider.Genre, 0),
 	}
 }
 
@@ -371,12 +376,12 @@ func (j *JellyfinMediaProvider) GetStreamURL(trackID string, transcode *mediapro
 	return j.client.GetStreamURL(trackID, jfTranscode)
 }
 
-func (j *JellyfinMediaProvider) DownloadTrack(trackID string) (io.Reader, error) {
+func (j *JellyfinMediaProvider) DownloadTrack(trackID string) (io.ReadCloser, error) {
 	url, err := j.client.GetStreamURL(trackID, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.Get(url)
+	resp, err := j.downloadClient.Get(url)
 	if err != nil {
 		return nil, err
 	}

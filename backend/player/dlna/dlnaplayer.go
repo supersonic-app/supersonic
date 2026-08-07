@@ -50,7 +50,8 @@ type DLNAPlayer struct {
 	// available. When set and the resolver succeeds, the path is exposed
 	// through the local proxy and emitted as upnp:albumArtURI in DIDL-Lite
 	// so the renderer can fetch it.
-	coverArtPathFn func(coverArtID string) (string, error)
+	coverArtPathFn    func(coverArtID string) (string, error)
+	musicServerClient *http.Client
 
 	state   int // stopped, playing, paused
 	seeking bool
@@ -95,11 +96,8 @@ type DLNAPlayer struct {
 	resetChan   chan (time.Duration)
 }
 
-func NewDLNAPlayer(device *device.MediaRenderer, coverArtPathFn func(coverArtID string) (string, error)) (*DLNAPlayer, error) {
-	retry := retryablehttp.NewClient()
-	retry.RetryMax = 3
-	retry.RetryWaitMin = 100 * time.Millisecond
-	retry.Logger = retryLogger{}
+func NewDLNAPlayer(device *device.MediaRenderer, coverArtPathFn func(coverArtID string) (string, error), musicServerClient *http.Client) (*DLNAPlayer, error) {
+	retry := newRendererRetryClient()
 	cli := retry.StandardClient()
 
 	avt, err := device.AVTransportClient()
@@ -121,11 +119,25 @@ func NewDLNAPlayer(device *device.MediaRenderer, coverArtPathFn func(coverArtID 
 	}
 
 	return &DLNAPlayer{
-		avTransport:    avt,
-		renderControl:  rc,
-		resetChan:      make(chan time.Duration),
-		coverArtPathFn: coverArtPathFn,
+		avTransport:       avt,
+		renderControl:     rc,
+		resetChan:         make(chan time.Duration),
+		coverArtPathFn:    coverArtPathFn,
+		musicServerClient: musicServerClient,
 	}, nil
+}
+
+func newRendererRetryClient() *retryablehttp.Client {
+	retry := retryablehttp.NewClient()
+	retry.RetryMax = 3
+	retry.RetryWaitMin = 100 * time.Millisecond
+	retry.Logger = retryLogger{}
+	if transport, ok := retry.HTTPClient.Transport.(*http.Transport); ok {
+		// Renderer control endpoints are on the local network and must not
+		// inherit application or environment proxy settings.
+		transport.Proxy = nil
+	}
+	return retry
 }
 
 // buildMediaItem assembles the avtransport.MediaItem for a track. It
@@ -611,9 +623,8 @@ func (d *DLNAPlayer) handleRequest(w http.ResponseWriter, r *http.Request) {
 	// Copy headers from the original request to the new request
 	proxyReq.Header = r.Header
 
-	// Create an HTTP client and send the request
-	client := &http.Client{}
-	resp, err := client.Do(proxyReq)
+	// Forward only music-server requests through the injected outbound client.
+	resp, err := d.musicServerClient.Do(proxyReq)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
