@@ -210,10 +210,21 @@ func (p *PlayQueueList) setItemsLocked(items []mediaprovider.MediaItem) {
 	})
 }
 
-func (p *PlayQueueList) Items() []mediaprovider.MediaItem {
-	return sharedutil.MapSlice(p.items, func(item *util.TrackListModel) mediaprovider.MediaItem {
-		return item.Item
-	})
+// Queue returns the full play queue, including any items hidden by the
+// hide-played-tracks filter. The indexes reported to the OnPlayItemAt,
+// OnRemoveFromQueue and OnReorderItems callbacks index into this slice, so it -
+// not the displayed items - is what a handler for those must work against.
+func (p *PlayQueueList) Queue() []mediaprovider.MediaItem {
+	p.tracksMutex.RLock()
+	defer p.tracksMutex.RUnlock()
+	if p.queue == nil {
+		// list was populated with SetItems/SetTracks rather than SetQueue,
+		// so nothing is hidden and the displayed items are the whole list
+		return sharedutil.MapSlice(p.items, func(item *util.TrackListModel) mediaprovider.MediaItem {
+			return item.Item
+		})
+	}
+	return p.queue
 }
 
 // Sets the currently playing item ID and updates the list rendering

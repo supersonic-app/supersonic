@@ -102,8 +102,12 @@ func New(app *backend.App, appVersion string, mainWindow fyne.Window) *Controlle
 // onHidePlayedTracksChanged updates every view that displays the play queue
 // after the hide-played-tracks setting was toggled.
 func (m *Controller) onHidePlayedTracksChanged() {
+	hide := m.App.Config.Application.HidePlayedQueueTracks
 	if m.popUpQueueList != nil {
-		m.popUpQueueList.SetHidePlayed(m.App.Config.Application.HidePlayedQueueTracks)
+		m.popUpQueueList.SetHidePlayed(hide)
+		// the popup may be visible while the setting is toggled in the
+		// settings dialog, so keep its checkbox in sync
+		m.hidePlayedTracks.SetChecked(hide)
 	}
 	if m.HidePlayedTracksChangedFunc != nil {
 		m.HidePlayedTracksChangedFunc()
@@ -278,7 +282,7 @@ func (m *Controller) ShowPopUpPlayQueue() {
 	popUpQueueList := m.popUpQueueList
 	pop := m.popUpQueue
 
-	// Re-apply filter in case setting changed since last open
+	// refresh in case the queue changed while the popup was hidden
 	m.applyPopUpQueueItems()
 
 	npID := ""
