@@ -85,12 +85,9 @@ func New(app *backend.App, appVersion string, mainWindow fyne.Window) *Controlle
 			if c.popUpQueue == nil {
 				return
 			}
-			// the playing index changed - re-apply the queue filter, but only if
-			// it actually changes which items are shown, since rebuilding the list
-			// discards the user's selection
-			if _, offset := c.filterPopUpQueue(); offset != c.popUpQueueList.PlayIndexOffset() {
-				c.applyPopUpQueueItems()
-			}
+			c.popUpQueueList.SetNowPlayingIndex(
+				c.App.PlaybackManager.NowPlayingIndex(),
+				c.App.Config.Application.HidePlayedQueueTracks)
 			if track == nil {
 				c.popUpQueueList.SetNowPlaying("")
 			} else {
@@ -101,18 +98,12 @@ func New(app *backend.App, appVersion string, mainWindow fyne.Window) *Controlle
 	return c
 }
 
-func (m *Controller) filterPopUpQueue() ([]mediaprovider.MediaItem, int) {
-	return util.FilterQueueForHidePlayed(
+// applyPopUpQueueItems refreshes the popup queue from the playback manager.
+func (m *Controller) applyPopUpQueueItems() {
+	m.popUpQueueList.SetQueue(
 		m.App.PlaybackManager.GetActivePlayQueue(),
 		m.App.PlaybackManager.NowPlayingIndex(),
 		m.App.Config.Application.HidePlayedQueueTracks)
-}
-
-// applyPopUpQueueItems applies the hide-played filter to the popup queue.
-func (m *Controller) applyPopUpQueueItems() {
-	displayItems, offset := m.filterPopUpQueue()
-	m.popUpQueueList.SetPlayIndexOffset(offset)
-	m.popUpQueueList.SetItems(displayItems)
 }
 
 func (m *Controller) SelectAll() {

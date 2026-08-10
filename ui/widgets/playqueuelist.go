@@ -60,11 +60,15 @@ type PlayQueueList struct {
 
 	nowPlayingID string
 
-	list            *FocusList
-	colLayout       *layouts.ColumnsLayout
-	tracksMutex     sync.RWMutex
-	items           []*util.TrackListModel
-	playIndexOffset int // offset to add to visual row index when calling OnPlayItemAt
+	list        *FocusList
+	colLayout   *layouts.ColumnsLayout
+	tracksMutex sync.RWMutex
+	items       []*util.TrackListModel
+
+	// state for the hide-played-tracks filter, see SetQueue
+	queue           []mediaprovider.MediaItem
+	nowPlayingIdx   int
+	playIndexOffset int // number of leading queue items not displayed
 }
 
 func NewPlayQueueList(im *backend.ImageManager, useNonQueueMenu bool) *PlayQueueList {
@@ -122,14 +126,39 @@ func NewPlayQueueList(im *backend.ImageManager, useNonQueueMenu bool) *PlayQueue
 	return p
 }
 
-// SetPlayIndexOffset adjusts click/drag indices when displaying a filtered queue.
-func (p *PlayQueueList) SetPlayIndexOffset(offset int) {
-	p.playIndexOffset = offset
+// SetQueue sets the play queue to display, along with the index of the currently
+// playing item (-1 if none). If hidePlayed is true, the already-played items
+// before the playing one are not displayed; indexes reported to the
+// OnPlayItemAt, OnRemoveFromQueue and OnReorderItems callbacks are translated
+// back into indexes in the full queue.
+func (p *PlayQueueList) SetQueue(items []mediaprovider.MediaItem, nowPlayingIdx int, hidePlayed bool) {
+	p.queue = items
+	p.nowPlayingIdx = nowPlayingIdx
+	p.applyQueueFilter(hidePlayed)
 }
 
-// PlayIndexOffset returns the offset currently applied to displayed indices.
-func (p *PlayQueueList) PlayIndexOffset() int {
-	return p.playIndexOffset
+// SetNowPlayingIndex updates the index of the currently playing item within the
+// queue set by SetQueue. The displayed items are only rebuilt if this changes
+// which of them are hidden, so an ordinary track change doesn't discard the
+// user's selection.
+func (p *PlayQueueList) SetNowPlayingIndex(nowPlayingIdx int, hidePlayed bool) {
+	p.nowPlayingIdx = nowPlayingIdx
+	if p.hiddenCount(hidePlayed) != p.playIndexOffset {
+		p.applyQueueFilter(hidePlayed)
+	}
+}
+
+// number of leading already-played items to hide from the queue
+func (p *PlayQueueList) hiddenCount(hidePlayed bool) int {
+	if hidePlayed && p.nowPlayingIdx > 0 && p.nowPlayingIdx < len(p.queue) {
+		return p.nowPlayingIdx
+	}
+	return 0
+}
+
+func (p *PlayQueueList) applyQueueFilter(hidePlayed bool) {
+	p.playIndexOffset = p.hiddenCount(hidePlayed)
+	p.SetItems(p.queue[p.playIndexOffset:])
 }
 
 func (p *PlayQueueList) SetTracks(trs []*mediaprovider.Track) {
