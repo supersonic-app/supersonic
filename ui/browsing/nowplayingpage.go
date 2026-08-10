@@ -299,11 +299,12 @@ func (a *NowPlayingPage) OnSongChange(song mediaprovider.MediaItem, lastScrobble
 	}
 	a.nowPlayingID = sharedutil.MediaItemIDOrEmptyStr(song)
 
-	// Re-apply queue filter since the playing index changed
-	nowIdx := a.pm.NowPlayingIndex()
-	displayQueue, offset := util.FilterQueueForHidePlayed(a.queue, nowIdx, a.cfg.Application.HidePlayedQueueTracks)
-	a.queueList.SetPlayIndexOffset(offset)
-	a.queueList.SetItems(displayQueue)
+	// the playing index changed - re-apply the queue filter, but only if
+	// it actually changes which items are shown, since rebuilding the list
+	// discards the user's selection
+	if _, offset := a.filterQueue(); offset != a.queueList.PlayIndexOffset() {
+		a.applyQueueItems()
+	}
 
 	a.queueList.SetNowPlaying(a.nowPlayingID)
 	if !a.alreadyLoaded {
@@ -481,6 +482,18 @@ func (a *NowPlayingPage) OnPlayQueueChange() {
 	a.Reload()
 }
 
+func (a *NowPlayingPage) filterQueue() ([]mediaprovider.MediaItem, int) {
+	return util.FilterQueueForHidePlayed(a.queue, a.pm.NowPlayingIndex(),
+		a.cfg.Application.HidePlayedQueueTracks)
+}
+
+// applyQueueItems applies the hide-played filter to the queue list.
+func (a *NowPlayingPage) applyQueueItems() {
+	displayQueue, offset := a.filterQueue()
+	a.queueList.SetPlayIndexOffset(offset)
+	a.queueList.SetItems(displayQueue)
+}
+
 func (a *NowPlayingPage) Reload() {
 	a.card.DisableRating = !a.canRate
 	a.queueList.DisableRating = !a.canRate
@@ -488,14 +501,14 @@ func (a *NowPlayingPage) Reload() {
 	a.relatedList.DisableRating = !a.canRate
 	a.relatedList.DisableSharing = !a.canShare
 
-	// Reset scroll position for widget pool recycling
-	a.queueList.ScrollToOffset(0)
+	if !a.alreadyLoaded {
+		// the queue list widget may have been recycled from the pool
+		// with a stale scroll position - reset it before populating
+		a.queueList.ScrollToOffset(0)
+	}
 
 	a.queue = a.pm.GetActivePlayQueue()
-	nowIdx := a.pm.NowPlayingIndex()
-	displayQueue, offset := util.FilterQueueForHidePlayed(a.queue, nowIdx, a.cfg.Application.HidePlayedQueueTracks)
-	a.queueList.SetPlayIndexOffset(offset)
-	a.queueList.SetItems(displayQueue)
+	a.applyQueueItems()
 	a.queueList.SetNowPlaying(a.nowPlayingID)
 	a.totalTime = 0.0
 	for _, tr := range a.queue {
