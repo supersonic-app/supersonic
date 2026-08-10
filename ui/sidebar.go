@@ -86,6 +86,11 @@ func (s *Sidebar) SetQueueTracks(items []mediaprovider.MediaItem, nowPlayingIdx 
 	s.queueList.SetQueue(items, nowPlayingIdx, s.config.HidePlayedQueueTracks)
 }
 
+// OnHidePlayedTracksChanged re-applies the hide-played-tracks setting to the queue.
+func (s *Sidebar) OnHidePlayedTracksChanged() {
+	s.queueList.SetHidePlayed(s.config.HidePlayedQueueTracks)
+}
+
 func (s *Sidebar) SetNowPlaying(item mediaprovider.MediaItem, nowPlayingIdx int) {
 	s.nowPlaying = item
 	id := ""

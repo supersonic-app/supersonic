@@ -50,13 +50,14 @@ type Controller struct {
 	MainWindow fyne.Window
 
 	// dependencies injected from MainWindow
-	NavHandler          NavigationHandler
-	CurPageFunc         CurPageFunc
-	ReloadFunc          func()
-	RefreshPageFunc     func()
-	SelectAllPageFunc   func()
-	UnselectAllPageFunc func()
-	ToastProvider       ToastProvider
+	NavHandler                  NavigationHandler
+	CurPageFunc                 CurPageFunc
+	ReloadFunc                  func()
+	RefreshPageFunc             func()
+	SelectAllPageFunc           func()
+	UnselectAllPageFunc         func()
+	HidePlayedTracksChangedFunc func()
+	ToastProvider               ToastProvider
 
 	popUpQueue         *widget.PopUp
 	popUpQueueList     *widgets.PlayQueueList
@@ -96,6 +97,17 @@ func New(app *backend.App, appVersion string, mainWindow fyne.Window) *Controlle
 		})
 	})
 	return c
+}
+
+// onHidePlayedTracksChanged updates every view that displays the play queue
+// after the hide-played-tracks setting was toggled.
+func (m *Controller) onHidePlayedTracksChanged() {
+	if m.popUpQueueList != nil {
+		m.popUpQueueList.SetHidePlayed(m.App.Config.Application.HidePlayedQueueTracks)
+	}
+	if m.HidePlayedTracksChangedFunc != nil {
+		m.HidePlayedTracksChangedFunc()
+	}
 }
 
 // applyPopUpQueueItems refreshes the popup queue from the playback manager.
@@ -219,8 +231,7 @@ func (m *Controller) ShowPopUpPlayQueue() {
 				return
 			}
 			m.App.Config.Application.HidePlayedQueueTracks = b
-			m.applyPopUpQueueItems()
-			m.App.PlaybackManager.TriggerQueueChangeCallback()
+			m.onHidePlayedTracksChanged()
 			m.App.SaveConfigFile()
 		})
 		bottomRow := container.NewHBox(layout.NewSpacer(), m.hidePlayedTracks, m.pauseAfterCurrent)
@@ -402,12 +413,7 @@ func (c *Controller) ShowSettingsDialog(themeUpdateCallbk func(), themeFiles map
 	}
 	dlg.OnPageNeedsRefresh = c.RefreshPageFunc
 	dlg.OnClearCaches = func() { go c.App.ClearCaches() }
-	dlg.OnHidePlayedQueueTracksChanged = func() {
-		if c.popUpQueue != nil {
-			c.applyPopUpQueueItems()
-		}
-		c.App.PlaybackManager.TriggerQueueChangeCallback()
-	}
+	dlg.OnHidePlayedQueueTracksChanged = c.onHidePlayedTracksChanged
 	pop := widget.NewModalPopUp(container.NewPadded(dlg), c.MainWindow.Canvas())
 	fynetooltip.AddPopUpToolTipLayer(pop)
 	dlg.OnDismiss = func() {
