@@ -6,6 +6,7 @@ import (
 	"fyne.io/fyne/v2/test"
 	"github.com/supersonic-app/supersonic/backend"
 	"github.com/supersonic-app/supersonic/backend/mediaprovider"
+	"github.com/supersonic-app/supersonic/sharedutil"
 	myTheme "github.com/supersonic-app/supersonic/ui/theme"
 )
 
@@ -151,6 +152,89 @@ func TestPlayQueueListHidePlayedEdgeCases(t *testing.T) {
 	p.SetQueue(nil, 0, true)
 	if got := p.lenTracks(); got != 0 {
 		t.Errorf("displayed items = %d, want 0", got)
+	}
+}
+
+// the displayed track numbers must stay the tracks' positions in the full
+// queue, rather than restarting from 1 once the played items are hidden
+func TestPlayQueueListDisplayTrackNum(t *testing.T) {
+	p := newTestPlayQueueList(t)
+	queue := testQueue(10)
+
+	p.SetQueue(queue, 5, false)
+	if got := p.displayTrackNum(0); got != 1 {
+		t.Errorf("first row numbered %d, want 1", got)
+	}
+	if got := p.displayTrackNum(9); got != 10 {
+		t.Errorf("last row numbered %d, want 10", got)
+	}
+
+	p.SetQueue(queue, 5, true)
+	if got := p.displayTrackNum(0); got != 6 {
+		t.Errorf("first visible row numbered %d, want 6", got)
+	}
+	if got := p.displayTrackNum(4); got != 10 {
+		t.Errorf("last visible row numbered %d, want 10", got)
+	}
+}
+
+func TestPlayQueueListPlayTrackAtUsesQueueIndex(t *testing.T) {
+	p := newTestPlayQueueList(t)
+	got := -1
+	p.OnPlayItemAt = func(idx int) { got = idx }
+
+	p.SetQueue(testQueue(10), 5, true)
+	p.onPlayTrackAt(0)
+	if got != 5 {
+		t.Errorf("playing first visible row reported index %d, want 5", got)
+	}
+	p.onPlayTrackAt(4)
+	if got != 9 {
+		t.Errorf("playing last visible row reported index %d, want 9", got)
+	}
+
+	// with the filter off the display index is already the queue index
+	p.SetQueue(testQueue(10), 5, false)
+	p.onPlayTrackAt(0)
+	if got != 0 {
+		t.Errorf("with filter off, first row reported index %d, want 0", got)
+	}
+}
+
+// the indexes and insert position the list reports must compose with Queue()
+// into a correct reordering of the FULL queue - pairing them with the displayed
+// items instead panics and drops the hidden tracks
+func TestPlayQueueListReorderComposesWithQueue(t *testing.T) {
+	p := newTestPlayQueueList(t)
+	p.Reorderable = true
+	p.SetQueue(testQueue(10), 5, true) // display f..j, offset 5
+
+	var gotIdxs []int
+	var gotInsertPos int
+	p.OnReorderItems = func(idxs []int, insertPos int) {
+		gotIdxs, gotInsertPos = idxs, insertPos
+	}
+
+	// drag the last visible row (display 4 = queue 9 = "j") to the top of the
+	// visible list (display insert position 0)
+	p.selectAddOrRemove(4)
+	p.list.OnDragEnd(4, 0)
+
+	if gotIdxs == nil {
+		t.Fatal("OnReorderItems was not called")
+	}
+	// this is what ConnectPlayQueuelistActions does with the reported values
+	newQueue := ids(sharedutil.ReorderItems(p.Queue(), gotIdxs, gotInsertPos))
+
+	want := []string{"a", "b", "c", "d", "e", "j", "f", "g", "h", "i"}
+	if len(newQueue) != len(want) {
+		t.Fatalf("reordered queue has %d tracks, want %d (hidden tracks must not be dropped)",
+			len(newQueue), len(want))
+	}
+	for i := range want {
+		if newQueue[i] != want[i] {
+			t.Fatalf("reordered queue = %v, want %v", newQueue, want)
+		}
 	}
 }
 
