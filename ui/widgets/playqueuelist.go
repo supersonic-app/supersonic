@@ -105,7 +105,7 @@ func NewPlayQueueList(im *backend.ImageManager, useNonQueueMenu bool) *PlayQueue
 				return
 			}
 			model := p.items[itemID]
-			trackNum := itemID + 1 + p.playIndexOffset
+			trackNum := p.displayTrackNumLocked(itemID)
 			p.tracksMutex.RUnlock()
 
 			tr := item.(*PlayQueueListRow)
@@ -446,6 +446,20 @@ func (t *PlayQueueList) queueIdxOffset() int {
 	t.tracksMutex.RLock()
 	defer t.tracksMutex.RUnlock()
 	return t.playIndexOffset
+}
+
+// track number to show for a displayed row: its position in the full play
+// queue, so that hiding the already-played items doesn't renumber the rest
+// starting from 1 again.
+func (p *PlayQueueList) displayTrackNum(itemID int) int {
+	p.tracksMutex.RLock()
+	defer p.tracksMutex.RUnlock()
+	return p.displayTrackNumLocked(itemID)
+}
+
+// caller must hold tracksMutex
+func (p *PlayQueueList) displayTrackNumLocked(itemID int) int {
+	return itemID + 1 + p.playIndexOffset
 }
 
 // indexes of the selected rows, translated into indexes in the full play queue,
