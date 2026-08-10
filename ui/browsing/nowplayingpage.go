@@ -299,13 +299,8 @@ func (a *NowPlayingPage) OnSongChange(song mediaprovider.MediaItem, lastScrobble
 	}
 	a.nowPlayingID = sharedutil.MediaItemIDOrEmptyStr(song)
 
-	// the playing index changed - re-apply the queue filter, but only if
-	// it actually changes which items are shown, since rebuilding the list
-	// discards the user's selection
-	if _, offset := a.filterQueue(); offset != a.queueList.PlayIndexOffset() {
-		a.applyQueueItems()
-	}
-
+	a.queueList.SetNowPlayingIndex(a.pm.NowPlayingIndex(),
+		a.cfg.Application.HidePlayedQueueTracks)
 	a.queueList.SetNowPlaying(a.nowPlayingID)
 	if !a.alreadyLoaded {
 		a.alreadyLoaded = true
@@ -482,18 +477,6 @@ func (a *NowPlayingPage) OnPlayQueueChange() {
 	a.Reload()
 }
 
-func (a *NowPlayingPage) filterQueue() ([]mediaprovider.MediaItem, int) {
-	return util.FilterQueueForHidePlayed(a.queue, a.pm.NowPlayingIndex(),
-		a.cfg.Application.HidePlayedQueueTracks)
-}
-
-// applyQueueItems applies the hide-played filter to the queue list.
-func (a *NowPlayingPage) applyQueueItems() {
-	displayQueue, offset := a.filterQueue()
-	a.queueList.SetPlayIndexOffset(offset)
-	a.queueList.SetItems(displayQueue)
-}
-
 func (a *NowPlayingPage) Reload() {
 	a.card.DisableRating = !a.canRate
 	a.queueList.DisableRating = !a.canRate
@@ -508,7 +491,8 @@ func (a *NowPlayingPage) Reload() {
 	}
 
 	a.queue = a.pm.GetActivePlayQueue()
-	a.applyQueueItems()
+	a.queueList.SetQueue(a.queue, a.pm.NowPlayingIndex(),
+		a.cfg.Application.HidePlayedQueueTracks)
 	a.queueList.SetNowPlaying(a.nowPlayingID)
 	a.totalTime = 0.0
 	for _, tr := range a.queue {

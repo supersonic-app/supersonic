@@ -9,7 +9,6 @@ import (
 	"github.com/supersonic-app/supersonic/backend/mediaprovider"
 	"github.com/supersonic-app/supersonic/ui/controller"
 	"github.com/supersonic-app/supersonic/ui/theme"
-	"github.com/supersonic-app/supersonic/ui/util"
 	"github.com/supersonic-app/supersonic/ui/widgets"
 )
 
@@ -24,10 +23,8 @@ type Sidebar struct {
 	lyricsLoading *widgets.LoadingDots
 	tabs          *container.AppTabs
 
-	nowPlaying    mediaprovider.MediaItem
-	nowPlayingID  string
-	nowPlayingIdx int
-	allQueueItems []mediaprovider.MediaItem
+	nowPlaying   mediaprovider.MediaItem
+	nowPlayingID string
 
 	curLyrics   *mediaprovider.Lyrics
 	curLyricsID string
@@ -36,10 +33,9 @@ type Sidebar struct {
 
 func NewSidebar(contr *controller.Controller, pm *backend.PlaybackManager, im *backend.ImageManager, lm *backend.LyricsManager, config *backend.AppConfig) *Sidebar {
 	s := &Sidebar{
-		lm:            lm,
-		config:        config,
-		queueList:     widgets.NewPlayQueueList(im, false),
-		nowPlayingIdx: -1,
+		lm:        lm,
+		config:    config,
+		queueList: widgets.NewPlayQueueList(im, false),
 	}
 	s.queueList.Reorderable = true
 	contr.ConnectPlayQueuelistActions(s.queueList)
@@ -86,37 +82,17 @@ func (s *Sidebar) SetSelectedIndex(idx int) {
 	s.tabs.SelectIndex(idx)
 }
 
-func (s *Sidebar) filterQueue() ([]mediaprovider.MediaItem, int) {
-	return util.FilterQueueForHidePlayed(s.allQueueItems, s.nowPlayingIdx,
-		s.config.HidePlayedQueueTracks)
-}
-
-// applyQueueItems applies the hide-played filter to the queue.
-func (s *Sidebar) applyQueueItems() {
-	displayItems, offset := s.filterQueue()
-	s.queueList.SetPlayIndexOffset(offset)
-	s.queueList.SetItems(displayItems)
-}
-
 func (s *Sidebar) SetQueueTracks(items []mediaprovider.MediaItem, nowPlayingIdx int) {
-	s.allQueueItems = items
-	s.nowPlayingIdx = nowPlayingIdx
-	s.applyQueueItems()
+	s.queueList.SetQueue(items, nowPlayingIdx, s.config.HidePlayedQueueTracks)
 }
 
 func (s *Sidebar) SetNowPlaying(item mediaprovider.MediaItem, nowPlayingIdx int) {
 	s.nowPlaying = item
-	s.nowPlayingIdx = nowPlayingIdx
 	id := ""
 	if item != nil {
 		id = item.Metadata().ID
 	}
-	// the playing index changed - re-apply the queue filter, but only if
-	// it actually changes which items are shown, since rebuilding the list
-	// discards the user's selection
-	if _, offset := s.filterQueue(); offset != s.queueList.PlayIndexOffset() {
-		s.applyQueueItems()
-	}
+	s.queueList.SetNowPlayingIndex(nowPlayingIdx, s.config.HidePlayedQueueTracks)
 	s.queueList.SetNowPlaying(id)
 	s.nowPlayingID = id
 	if s.tabs.SelectedIndex() == 1 /*lyrics*/ {
