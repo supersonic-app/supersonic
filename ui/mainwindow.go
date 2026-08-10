@@ -93,6 +93,10 @@ func NewMainWindow(fyneApp fyne.App, appName, displayAppName, appVersion string,
 	}
 	m.Controller.SelectAllPageFunc = m.BrowsingPane.SelectAll
 	m.Controller.UnselectAllPageFunc = m.BrowsingPane.UnselectAll
+	m.Controller.HidePlayedTracksChangedFunc = func() {
+		m.Sidebar.OnHidePlayedTracksChanged()
+		m.BrowsingPane.RefreshPlayQueue()
+	}
 	m.Controller.ToastProvider = m.ToastOverlay
 
 	if runtime.GOOS == "darwin" {
