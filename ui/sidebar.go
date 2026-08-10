@@ -86,9 +86,14 @@ func (s *Sidebar) SetSelectedIndex(idx int) {
 	s.tabs.SelectIndex(idx)
 }
 
+func (s *Sidebar) filterQueue() ([]mediaprovider.MediaItem, int) {
+	return util.FilterQueueForHidePlayed(s.allQueueItems, s.nowPlayingIdx,
+		s.config.HidePlayedQueueTracks)
+}
+
 // applyQueueItems applies the hide-played filter to the queue.
 func (s *Sidebar) applyQueueItems() {
-	displayItems, offset := util.FilterQueueForHidePlayed(s.allQueueItems, s.nowPlayingIdx, s.config.HidePlayedQueueTracks)
+	displayItems, offset := s.filterQueue()
 	s.queueList.SetPlayIndexOffset(offset)
 	s.queueList.SetItems(displayItems)
 }
@@ -106,8 +111,12 @@ func (s *Sidebar) SetNowPlaying(item mediaprovider.MediaItem, nowPlayingIdx int)
 	if item != nil {
 		id = item.Metadata().ID
 	}
-	// Re-filter the queue whenever the playing track changes
-	s.applyQueueItems()
+	// the playing index changed - re-apply the queue filter, but only if
+	// it actually changes which items are shown, since rebuilding the list
+	// discards the user's selection
+	if _, offset := s.filterQueue(); offset != s.queueList.PlayIndexOffset() {
+		s.applyQueueItems()
+	}
 	s.queueList.SetNowPlaying(id)
 	s.nowPlayingID = id
 	if s.tabs.SelectedIndex() == 1 /*lyrics*/ {

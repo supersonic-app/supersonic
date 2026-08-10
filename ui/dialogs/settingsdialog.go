@@ -211,7 +211,7 @@ func (s *SettingsDialog) createGeneralTab(canSaveQueueToServer bool) *container.
 
 	trackNotif := widget.NewCheckWithData(lang.L("Show notification on track change"),
 		binding.BindBool(&s.config.Application.ShowTrackChangeNotification))
-	hidePlayedTracks := widget.NewCheck(lang.L("Hide already-played tracks in play queue"), func(b bool) {
+	hidePlayedTracks := widget.NewCheck(lang.L("Hide played tracks in play queue"), func(b bool) {
 		s.config.Application.HidePlayedQueueTracks = b
 		if s.OnHidePlayedQueueTracksChanged != nil {
 			s.OnHidePlayedQueueTracksChanged()

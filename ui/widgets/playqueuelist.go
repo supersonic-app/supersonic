@@ -115,11 +115,7 @@ func NewPlayQueueList(im *backend.ImageManager, useNonQueueMenu bool) *PlayQueue
 	}
 	p.list.OnDragEnd = func(dragged, insertPos int) {
 		if p.OnReorderItems != nil {
-			idxs := p.selectedIdxs()
-			for i := range idxs {
-				idxs[i] += p.playIndexOffset
-			}
-			p.OnReorderItems(idxs, insertPos+p.playIndexOffset)
+			p.OnReorderItems(p.selectedQueueIdxs(), insertPos+p.playIndexOffset)
 		}
 	}
 
@@ -129,6 +125,11 @@ func NewPlayQueueList(im *backend.ImageManager, useNonQueueMenu bool) *PlayQueue
 // SetPlayIndexOffset adjusts click/drag indices when displaying a filtered queue.
 func (p *PlayQueueList) SetPlayIndexOffset(offset int) {
 	p.playIndexOffset = offset
+}
+
+// PlayIndexOffset returns the offset currently applied to displayed indices.
+func (p *PlayQueueList) PlayIndexOffset() int {
+	return p.playIndexOffset
 }
 
 func (p *PlayQueueList) SetTracks(trs []*mediaprovider.Track) {
@@ -290,7 +291,7 @@ func (p *PlayQueueList) ensureTracksMenu() {
 	if !p.useNonQueueMenu {
 		remove := fyne.NewMenuItem(lang.L("Remove from queue"), func() {
 			if p.OnRemoveFromQueue != nil {
-				p.OnRemoveFromQueue(p.selectedIdxs())
+				p.OnRemoveFromQueue(p.selectedQueueIdxs())
 			}
 		})
 		remove.Icon = theme.ContentRemoveIcon()
@@ -336,7 +337,7 @@ func (p *PlayQueueList) ensureRadiosMenu() {
 	}
 	remove := fyne.NewMenuItem(lang.L("Remove from queue"), func() {
 		if p.OnRemoveFromQueue != nil {
-			p.OnRemoveFromQueue(p.selectedIdxs())
+			p.OnRemoveFromQueue(p.selectedQueueIdxs())
 		}
 	})
 	remove.Icon = theme.ContentRemoveIcon()
@@ -368,6 +369,16 @@ func (t *PlayQueueList) selectedIdxs() []int {
 	t.tracksMutex.RLock()
 	defer t.tracksMutex.RUnlock()
 	return util.SelectedIndexes(t.items)
+}
+
+// like selectedIdxs, but translated into indexes in the full play queue.
+// Must be used for any callback whose indexes are interpreted by the playback engine.
+func (t *PlayQueueList) selectedQueueIdxs() []int {
+	idxs := t.selectedIdxs()
+	for i := range idxs {
+		idxs[i] += t.playIndexOffset
+	}
+	return idxs
 }
 
 func (p *PlayQueueList) CreateRenderer() fyne.WidgetRenderer {
