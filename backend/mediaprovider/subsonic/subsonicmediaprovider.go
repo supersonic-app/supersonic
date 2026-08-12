@@ -4,6 +4,7 @@ import (
 	"errors"
 	"image"
 	"io"
+	"log"
 	"math"
 	"net/url"
 	"slices"
@@ -786,16 +787,34 @@ func fillPlaylist(pl *subsonic.Playlist, playlist *mediaprovider.Playlist) {
 }
 
 func (s *subsonicMediaProvider) GetSongRadio(trackID string, count int) ([]*mediaprovider.Track, error) {
-	tr, err := s.client.GetSimilarSongs(trackID, map[string]string{"count": strconv.Itoa(count)})
+	type result struct {
+		tracks []*subsonic.Child
+		err    error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		tr, err := s.client.GetSimilarSongs(trackID, map[string]string{"count": strconv.Itoa(count)})
+		ch <- result{tr, err}
+	}()
+
+	var tr []*subsonic.Child
+	select {
+	case res := <-ch:
+		if res.err != nil {
+			log.Printf("GetSongRadio: getSimilarSongs failed (%v), using fallback", res.err)
+		} else {
+			tr = res.tracks
+		}
+	case <-time.After(10 * time.Second):
+		log.Printf("GetSongRadio: getSimilarSongs timed out, using fallback")
+	}
+
+	if len(tr) > 0 {
+		return sharedutil.MapSlice(tr, toTrack), nil
+	}
+	track, err := s.GetTrack(trackID)
 	if err != nil {
 		return nil, err
 	}
-	if len(tr) == 0 {
-		track, err := s.GetTrack(trackID)
-		if err != nil {
-			return nil, err
-		}
-		return helpers.GetSimilarSongsFallback(s, track, count), nil
-	}
-	return sharedutil.MapSlice(tr, toTrack), nil
+	return helpers.GetSimilarSongsFallback(s, track, count), nil
 }
