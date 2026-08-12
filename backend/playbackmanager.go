@@ -582,6 +582,12 @@ func (p *PlaybackManager) PlaySimilarSongs(id string) error {
 	})
 }
 
+func (p *PlaybackManager) PlaySongRadio(trackID string) error {
+	return p.fetchAndPlayTracks(func() ([]*mediaprovider.Track, error) {
+		return p.engine.sm.Server.GetSongRadio(trackID, p.appCfg.EnqueueBatchSize)
+	})
+}
+
 func (p *PlaybackManager) PlayRandomAlbums(genreName string) error {
 	mp := p.engine.sm.GetServer()
 	if mp == nil {

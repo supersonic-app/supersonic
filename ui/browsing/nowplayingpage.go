@@ -174,7 +174,7 @@ func NewNowPlayingPage(
 	}
 	a.relatedList.OnPlaySongRadio = func(track *mediaprovider.Track) {
 		go func() {
-			if err := a.pm.PlaySimilarSongs(track.ID); err != nil {
+			if err := a.pm.PlaySongRadio(track.ID); err != nil {
 				fyne.Do(func() {
 					a.contr.ToastProvider.ShowErrorToast(lang.L("Unable to play song radio"))
 				})

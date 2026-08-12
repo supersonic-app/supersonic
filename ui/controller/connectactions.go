@@ -223,7 +223,7 @@ func (c *Controller) ConnectPlayQueuelistActions(list *widgets.PlayQueueList) {
 	list.OnSetFavorite = c.SetTrackFavorites
 	list.OnPlaySongRadio = func(track *mediaprovider.Track) {
 		go func() {
-			if err := c.App.PlaybackManager.PlaySimilarSongs(track.ID); err != nil {
+			if err := c.App.PlaybackManager.PlaySongRadio(track.ID); err != nil {
 				fyne.Do(func() {
 					c.ToastProvider.ShowErrorToast(lang.L("Unable to play song radio"))
 				})
