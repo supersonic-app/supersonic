@@ -797,6 +797,12 @@ func (s *subsonicMediaProvider) GetSongRadio(trackID string, count int) ([]*medi
 		ch <- result{tr, err}
 	}()
 
+	// The go-subsonic client has no context support, so we can't cancel the
+	// in-flight request directly. The goroutine will exit when the underlying
+	// http.Client timeout (RequestTimeoutSeconds) fires.
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
+
 	var tr []*subsonic.Child
 	select {
 	case res := <-ch:
@@ -805,7 +811,7 @@ func (s *subsonicMediaProvider) GetSongRadio(trackID string, count int) ([]*medi
 		} else {
 			tr = res.tracks
 		}
-	case <-time.After(10 * time.Second):
+	case <-timer.C:
 		log.Printf("GetSongRadio: getSimilarSongs timed out, using fallback")
 	}
 
