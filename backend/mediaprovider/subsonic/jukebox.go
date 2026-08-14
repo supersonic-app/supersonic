@@ -67,3 +67,17 @@ func (s *subsonicMediaProvider) JukeboxGetStatus() (*mediaprovider.JukeboxStatus
 		PositionSeconds: float64(stat.Position),
 	}, nil
 }
+
+// JukeboxSupported probes the server once (a side-effect-free "status" call)
+// and caches the result for the lifetime of this provider. The Subsonic API
+// doesn't advertise jukebox support via getOpenSubsonicExtensions or
+// elsewhere, and not every server allows it (it may be disabled globally, or
+// per-user via Settings > Users > Jukebox Role), so the only reliable way to
+// know is to try it.
+func (s *subsonicMediaProvider) JukeboxSupported() bool {
+	s.jukeboxSupportOnce.Do(func() {
+		_, err := s.client.JukeboxControl("status", nil)
+		s.jukeboxSupported = err == nil
+	})
+	return s.jukeboxSupported
+}
