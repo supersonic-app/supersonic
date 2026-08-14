@@ -303,8 +303,24 @@ func (j *JukeboxPlayer) handleOnTrackChange() {
 	}
 
 	if !stat.Playing {
-		// the server-side queue is exhausted (or was stopped by another
-		// client) - nothing left to advance to
+		if j.hasNextTrack {
+			// We know a track was queued to play after this one, but the
+			// server hasn't started it yet. Observed with Navidrome: it
+			// spawns a fresh mpv process per track ("Starting trackSwitcher
+			// goroutine" / "Found mpv" in its logs), which isn't
+			// instantaneous, so there's a brief window right at a track
+			// boundary where status legitimately reports not-playing even
+			// though playback is about to continue. Treating that as
+			// "queue exhausted" here would both tell the engine playback
+			// stopped (dropping the UI's now-playing display) and leave
+			// the timer permanently disarmed, since nothing else re-arms
+			// it - silently killing playback of every track after this
+			// one. Check again shortly instead.
+			j.trackChangeTimer.Reset(retryDelay)
+			return
+		}
+		// no next track was queued, so the server has genuinely run out of
+		// queue to advance to (or was stopped by another client)
 		j.state = stopped
 		j.lastStartTime = 0
 		j.stopwatch.Reset()
