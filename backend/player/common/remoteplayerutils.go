@@ -1,66 +1,48 @@
 package common
 
 import (
-	"sync/atomic"
+	"sync"
 	"time"
 )
 
+// TrackChangeTimer is a resettable one-shot timer used by remote player
+// implementations (DLNAPlayer, JukeboxPlayer) to estimate when the current
+// track will end, since neither DLNA nor the Subsonic jukebox API pushes
+// playback events to the client.
+//
+// Reset is safe to call concurrently from multiple goroutines (e.g. a
+// user-initiated Stop() racing a delayed background position-sync), which a
+// previous implementation based on an unbuffered channel handoff was not:
+// two concurrent Reset calls could race such that one delivers a "cancel"
+// message that causes the timer's dispatcher goroutine to exit while a
+// second, already in-flight send is still waiting for a receiver, blocking
+// that caller (and anything serialized behind it, such as the playback
+// command queue) forever.
 type TrackChangeTimer struct {
-	timerActive atomic.Bool
-	timer       *time.Timer
-	resetChan   chan (time.Duration)
+	mu    sync.Mutex
+	timer *time.Timer
 
 	onHandleTrackChange func()
 }
 
 func NewTrackChangeTimer(onHandleTrackChange func()) TrackChangeTimer {
-	return TrackChangeTimer{
-		resetChan:           make(chan time.Duration),
-		onHandleTrackChange: onHandleTrackChange,
-	}
+	return TrackChangeTimer{onHandleTrackChange: onHandleTrackChange}
 }
 
+// Reset (re)arms the timer to fire onHandleTrackChange after dur, replacing
+// any previously scheduled fire. A dur of exactly 0 cancels any pending fire
+// without scheduling a new one; a negative dur fires (almost) immediately,
+// same as a plain time.Timer.
 func (d *TrackChangeTimer) Reset(dur time.Duration) {
-	if d.timerActive.Swap(true) {
-		// was active
-		d.resetChan <- dur
-		return
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.timer != nil {
+		d.timer.Stop()
+		d.timer = nil
 	}
 	if dur == 0 {
-		d.timerActive.Store(false)
 		return
 	}
-
-	d.timer = time.NewTimer(dur)
-	go func() {
-		for {
-			select {
-			case dur := <-d.resetChan:
-				if dur == 0 {
-					d.timerActive.Store(false)
-					if !d.timer.Stop() {
-						select {
-						case <-d.timer.C:
-						default:
-						}
-					}
-					d.timer = nil
-					return
-				}
-				// reset the timer
-				if !d.timer.Stop() {
-					select {
-					case <-d.timer.C:
-					default:
-					}
-				}
-				d.timer.Reset(dur)
-			case <-d.timer.C:
-				d.timerActive.Store(false)
-				d.timer = nil
-				d.onHandleTrackChange()
-				return
-			}
-		}
-	}()
+	d.timer = time.AfterFunc(dur, d.onHandleTrackChange)
 }
