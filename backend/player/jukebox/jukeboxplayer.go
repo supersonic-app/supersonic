@@ -43,10 +43,13 @@ type JukeboxPlayer struct {
 
 	trackChangeTimer common.TrackChangeTimer
 
-	// index into the server-side jukebox queue of the currently playing track
-	curTrack int
-	// number of tracks currently in the server-side jukebox queue
-	queueLength      int
+	// index into the server-side jukebox queue of the currently playing
+	// track. Since the server doesn't push playback events, this is only
+	// ever updated from a JukeboxGetStatus response (see
+	// reconcileWithStatus) - never assumed/incremented locally except right
+	// after PlayTrack, where we know it's 0 because JukeboxSet just cleared
+	// the queue.
+	curTrack         int
 	curTrackDuration float64
 
 	// duration of the track queued via SetNextTrack, used to know the new
@@ -149,7 +152,6 @@ func (j *JukeboxPlayer) PlayTrack(track *mediaprovider.Track, startTime float64)
 	}
 
 	j.curTrack = 0
-	j.queueLength = 1
 	j.curTrackDuration = track.Duration.Seconds()
 	j.hasNextTrack = false
 
@@ -186,12 +188,25 @@ func (j *JukeboxPlayer) SetNextTrack(track *mediaprovider.Track) error {
 		return nil
 	}
 
-	// we need to replace the last track in the queue, remove it first
-	if j.curTrack < j.queueLength-1 {
+	// Reconcile against the server's authoritative queue position first.
+	// This is called once per track, close to its end (see
+	// playbackEngine.handleTimePosUpdate's isNearEnd check), which is also
+	// exactly when our own track-change-timer estimate is most likely to
+	// still be stale relative to the server's true state (e.g. our
+	// estimate of the current track's duration ran a bit long). If we
+	// computed the index to remove/add from a stale j.curTrack, we could
+	// end up operating on the currently-playing entry instead of a
+	// genuinely queued-but-unplayed one - which, depending on how the
+	// server's jukebox reacts to removing its active track, can disrupt
+	// playback (observed: it fell back to replaying the previous track).
+	if stat, err := j.provider.JukeboxGetStatus(); err == nil && stat.Playing {
+		j.reconcileWithStatus(stat)
+	}
+
+	if j.hasNextTrack {
 		if err := j.provider.JukeboxRemove(j.curTrack + 1); err != nil {
 			return err
 		}
-		j.queueLength -= 1
 		j.hasNextTrack = false
 	}
 
@@ -203,7 +218,6 @@ func (j *JukeboxPlayer) SetNextTrack(track *mediaprovider.Track) error {
 	if err := j.provider.JukeboxAdd(track.ID); err != nil {
 		return err
 	}
-	j.queueLength += 1
 	j.hasNextTrack = true
 	j.nextTrackDuration = track.Duration.Seconds()
 	return nil
@@ -298,6 +312,19 @@ func (j *JukeboxPlayer) handleOnTrackChange() {
 		return
 	}
 
+	j.reconcileWithStatus(stat)
+}
+
+// reconcileWithStatus updates local track-position state to match an
+// authoritative JukeboxGetStatus response. If the server has moved on to a
+// different track than we last knew, this performs the same bookkeeping as
+// a natural track change and notifies the engine via InvokeOnTrackChange -
+// so regardless of which poll (the track-change timer firing, scheduleSync,
+// or SetNextTrack's own pre-check) is the one to first observe the server
+// having advanced, the engine always finds out about it the same way.
+// Otherwise, just resyncs the current track's position (see
+// resyncFromStatus).
+func (j *JukeboxPlayer) reconcileWithStatus(stat *mediaprovider.JukeboxStatus) {
 	if stat.CurrentTrack == j.curTrack {
 		// our local timer fired early due to clock drift - the server
 		// hasn't advanced tracks yet. Resync and re-arm for the
