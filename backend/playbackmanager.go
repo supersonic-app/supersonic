@@ -17,6 +17,7 @@ import (
 	"github.com/supersonic-app/supersonic/backend/mediaprovider"
 	"github.com/supersonic-app/supersonic/backend/player"
 	"github.com/supersonic-app/supersonic/backend/player/dlna"
+	"github.com/supersonic-app/supersonic/backend/player/jukebox"
 	"github.com/supersonic-app/supersonic/backend/player/mpv"
 	"github.com/supersonic-app/supersonic/sharedutil"
 )
@@ -66,6 +67,13 @@ type RemotePlaybackDevice struct {
 	Protocol string
 	new      func() (player.BasePlayer, error)
 }
+
+// jukeboxDeviceURL identifies the RemotePlaybackDevice for server-side Jukebox
+// playback. Unlike DLNA devices (identified by their real network URL), the
+// Jukebox device isn't discovered on the network - it's synthesized from the
+// currently connected server's capabilities - so it needs a stable placeholder
+// URL to be identifiable/comparable in the cast device list.
+const jukeboxDeviceURL = "jukebox://current-server"
 
 func NewPlaybackManager(
 	ctx context.Context,
@@ -275,11 +283,38 @@ func (p *PlaybackManager) scanRemotePlayers(ctx context.Context, waitSec int) {
 	p.remotePlayersLock.Unlock()
 }
 
+// RemotePlayers returns the list of currently available remote (cast)
+// playback devices: network-discovered DLNA renderers, plus a Jukebox device
+// if the connected server supports server-side Jukebox playback.
 func (p *PlaybackManager) RemotePlayers() []RemotePlaybackDevice {
 	p.remotePlayersLock.Lock()
-	players := p.remotePlayers
+	discovered := p.remotePlayers
 	p.remotePlayersLock.Unlock()
+
+	players := make([]RemotePlaybackDevice, 0, len(discovered)+1)
+	players = append(players, discovered...)
+	if jp, ok := p.jukeboxProvider(); ok {
+		players = append(players, RemotePlaybackDevice{
+			Name:     "Jukebox",
+			URL:      jukeboxDeviceURL,
+			Protocol: "Jukebox",
+			new: func() (player.BasePlayer, error) {
+				return jukebox.NewJukeboxPlayer(jp)
+			},
+		})
+	}
 	return players
+}
+
+// jukeboxProvider returns the connected server's mediaprovider.JukeboxProvider
+// capability, if it has one.
+func (p *PlaybackManager) jukeboxProvider() (mediaprovider.JukeboxProvider, bool) {
+	mp := p.engine.sm.GetServer()
+	if mp == nil {
+		return nil, false
+	}
+	jp, ok := mp.(mediaprovider.JukeboxProvider)
+	return jp, ok
 }
 
 func (p *PlaybackManager) CurrentRemotePlayer() *RemotePlaybackDevice {
