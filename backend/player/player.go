@@ -6,8 +6,8 @@ import (
 
 type URLPlayer interface {
 	BasePlayer
-	PlayFile(url string, metadata mediaprovider.MediaItemMetadata, startTime float64) error
-	SetNextFile(url string, metadata mediaprovider.MediaItemMetadata) error
+	PlayFile(source PlaybackSource, metadata mediaprovider.MediaItemMetadata, startTime float64) error
+	SetNextFile(source PlaybackSource, metadata mediaprovider.MediaItemMetadata) error
 }
 
 type TrackPlayer interface {

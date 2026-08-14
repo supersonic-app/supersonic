@@ -58,6 +58,9 @@ type DLNAPlayer struct {
 	metaLock      sync.Mutex
 	curTrackMeta  mediaprovider.MediaItemMetadata
 	nextTrackMeta mediaprovider.MediaItemMetadata
+	curSource     player.PlaybackSource
+	nextSource    player.PlaybackSource
+	signalPath    *player.SignalPathState
 
 	// if true, report playback time 00:00
 	// pending time sync with player after beginning playback
@@ -95,6 +98,10 @@ type DLNAPlayer struct {
 	resetChan   chan (time.Duration)
 }
 
+var _ player.URLPlayer = (*DLNAPlayer)(nil)
+var _ player.SignalPathProvider = (*DLNAPlayer)(nil)
+var _ player.CapabilityProvider = (*DLNAPlayer)(nil)
+
 func NewDLNAPlayer(device *device.MediaRenderer, coverArtPathFn func(coverArtID string) (string, error)) (*DLNAPlayer, error) {
 	retry := retryablehttp.NewClient()
 	retry.RetryMax = 3
@@ -120,11 +127,17 @@ func NewDLNAPlayer(device *device.MediaRenderer, coverArtPathFn func(coverArtID 
 		return nil, fmt.Errorf("failed to connect to %s", device.FriendlyName)
 	}
 
+	observation := player.SignalPathObservation{
+		Requested:      player.ModeNormal,
+		RemoteRenderer: true,
+		Receipt:        player.NewSourceReceipt(player.DeliveryExternalStream),
+	}
 	return &DLNAPlayer{
 		avTransport:    avt,
 		renderControl:  rc,
 		resetChan:      make(chan time.Duration),
 		coverArtPathFn: coverArtPathFn,
+		signalPath:     player.NewSignalPathState(player.ReduceSignalPath(observation)),
 	}, nil
 }
 
@@ -183,7 +196,7 @@ func (d *DLNAPlayer) GetVolume() int {
 	return vol
 }
 
-func (d *DLNAPlayer) PlayFile(urlstr string, meta mediaprovider.MediaItemMetadata, startTime float64) error {
+func (d *DLNAPlayer) PlayFile(source player.PlaybackSource, meta mediaprovider.MediaItemMetadata, startTime float64) error {
 	if d.destroyed {
 		return nil
 	}
@@ -192,14 +205,17 @@ func (d *DLNAPlayer) PlayFile(urlstr string, meta mediaprovider.MediaItemMetadat
 
 	d.metaLock.Lock()
 	d.curTrackMeta = meta
+	d.curSource = source.Clone()
+	d.nextSource = player.PlaybackSource{}
 	d.metaLock.Unlock()
-	key := d.addURLToProxy(urlstr)
+	key := d.addURLToProxy(source.URL)
 
 	media := d.buildMediaItem(d.urlForItem(key), meta)
 
 	if err := d.playAVTransportMedia(&media); err != nil {
 		return err
 	}
+	d.publishSignalPath(source)
 	d.pendingPlayStart = true
 	if startTime > 0 {
 		// TODO: do something better than this!!
@@ -247,7 +263,7 @@ func (d *DLNAPlayer) playAVTransportMedia(media *avtransport.MediaItem) error {
 	return nil
 }
 
-func (d *DLNAPlayer) SetNextFile(url string, meta mediaprovider.MediaItemMetadata) error {
+func (d *DLNAPlayer) SetNextFile(source player.PlaybackSource, meta mediaprovider.MediaItemMetadata) error {
 	if d.destroyed {
 		return nil
 	}
@@ -255,11 +271,12 @@ func (d *DLNAPlayer) SetNextFile(url string, meta mediaprovider.MediaItemMetadat
 	var media *avtransport.MediaItem
 	d.metaLock.Lock()
 	d.nextTrackMeta = meta
+	d.nextSource = source.Clone()
 	d.metaLock.Unlock()
-	if url != "" {
+	if source.URL != "" {
 		d.ensureSetupProxy()
 
-		key := d.addURLToProxy(url)
+		key := d.addURLToProxy(source.URL)
 		item := d.buildMediaItem(d.urlForItem(key), meta)
 		media = &item
 	} else {
@@ -547,6 +564,9 @@ func (d *DLNAPlayer) handleOnTrackChange() {
 	}
 	d.curTrackMeta = d.nextTrackMeta
 	d.nextTrackMeta = mediaprovider.MediaItemMetadata{}
+	d.curSource = d.nextSource
+	d.nextSource = player.PlaybackSource{}
+	currentSource := d.curSource.Clone()
 	nextTrackChange := d.curTrackMeta.Duration
 	d.metaLock.Unlock()
 
@@ -555,6 +575,7 @@ func (d *DLNAPlayer) handleOnTrackChange() {
 		d.stopwatch.Reset()
 		d.InvokeOnStopped()
 	} else {
+		d.publishSignalPath(currentSource)
 		d.metaLock.Lock()
 		if d.failedToSetNext {
 			d.failedToSetNext = false
@@ -579,6 +600,51 @@ func (d *DLNAPlayer) handleOnTrackChange() {
 			}
 		}()
 	}
+}
+
+func (d *DLNAPlayer) PlaybackCapabilities() player.PlaybackCapabilities {
+	return player.PlaybackCapabilities{
+		EngineID: "dlna",
+		Normal: player.ModeCapability{
+			Status: player.CapabilitySupported,
+		},
+		ExclusiveProcessed: player.ModeCapability{
+			Status: player.CapabilityUnsupported,
+			Reason: "the remote renderer owns its output mode",
+		},
+		StrictPCM: player.ModeCapability{
+			Status: player.CapabilityUnsupported,
+			Reason: "the remote renderer's DAC path cannot be verified locally",
+		},
+		StrictDoP: player.ModeCapability{
+			Status: player.CapabilityUnsupported,
+			Reason: "the remote renderer's DSD transport cannot be verified locally",
+		},
+		RemoteRenderer: player.ModeCapability{
+			Status: player.CapabilitySupported,
+		},
+	}
+}
+
+func (d *DLNAPlayer) SignalPathSnapshot() player.PlaybackSnapshot {
+	return d.signalPath.Snapshot()
+}
+
+func (d *DLNAPlayer) OnSignalPathChange(callback func(player.PlaybackSnapshot)) {
+	d.signalPath.OnChange(callback)
+}
+
+func (d *DLNAPlayer) publishSignalPath(source player.PlaybackSource) {
+	snapshot := player.ReduceSignalPath(player.SignalPathObservation{
+		Requested:      player.ModeNormal,
+		Source:         source.Descriptor,
+		Receipt:        source.Receipt,
+		RemoteRenderer: true,
+		Generation:     d.signalPath.Snapshot().Generation + 1,
+	})
+	d.signalPath.Update(func(current *player.PlaybackSnapshot) {
+		*current = snapshot
+	})
 }
 
 func (d *DLNAPlayer) urlForItem(key string) string {

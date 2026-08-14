@@ -615,6 +615,10 @@ func (a *NowPlayingPage) formatStatusLine() {
 }
 
 func (a *NowPlayingPage) formatMediaInfoStr(player player.BasePlayer) string {
+	if decoder := a.pm.SignalPathSnapshot().Decoder; decoder.Available {
+		return formatMediaInfo(decoder.Codec, decoder.Format.SampleRate, decoder.Bitrate)
+	}
+
 	mpv, ok := player.(*mpv.Player)
 	if !ok {
 		return ""
@@ -624,12 +628,15 @@ func (a *NowPlayingPage) formatMediaInfoStr(player player.BasePlayer) string {
 		log.Printf("error getting playback status: %s", err.Error())
 		return ""
 	}
-	codec := audioInfo.Codec
+	return formatMediaInfo(audioInfo.Codec, audioInfo.Samplerate, audioInfo.Bitrate)
+}
+
+func formatMediaInfo(codec string, sampleRate, bitrate int) string {
 	if len(codec) <= 4 && !strings.EqualFold(codec, "opus") {
 		codec = strings.ToUpper(codec) // FLAC, MP3, AAC, etc
 	}
 
 	// Note: bit depth intentionally omitted since MPV reports the decoded bit depth
 	// i.e. 24 bit files get reported as 32 bit. Also b/c bit depth isn't meaningful for lossy.
-	return fmt.Sprintf("%s %g kHz, %d kbps", codec, float64(audioInfo.Samplerate)/1000, audioInfo.Bitrate/1000)
+	return fmt.Sprintf("%s %g kHz, %d kbps", codec, float64(sampleRate)/1000, bitrate/1000)
 }

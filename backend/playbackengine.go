@@ -973,14 +973,14 @@ func (p *playbackEngine) nextPlayingIndex() int {
 
 func (p *playbackEngine) setTrack(idx int, next bool, startTime float64) error {
 	var item mediaprovider.MediaItem
-	var url string
+	var source player.PlaybackSource
 	if idx >= 0 {
 		item = p.getPlayQueueItemAt(idx)
-		url = p.getMediaURLForIdx(idx)
+		source = p.getPlaybackSourceForIdx(idx)
 	}
 	track, isTrack := item.(*mediaprovider.Track)
 	if p.audiocache != nil && isTrack {
-		p.audiocache.CacheFile(item.Metadata().ID, p.getMediaURLForIdx(idx))
+		p.audiocache.CacheFile(item.Metadata().ID, source.URL)
 	}
 
 	if urlP, ok := p.player.(player.URLPlayer); ok {
@@ -989,7 +989,12 @@ func (p *playbackEngine) setTrack(idx int, next bool, startTime float64) error {
 			meta = item.Metadata()
 			if isTrack && p.audiocache != nil {
 				if filepath := p.audiocache.PathForCachedFile(track.ID); filepath != "" {
-					url = filepath
+					source.URL = filepath
+					source.Receipt.CompleteCache = true
+					source.Receipt.Evidence = append(source.Receipt.Evidence, player.EvidenceItem{
+						Kind:  "playback_source",
+						Value: "complete_cache",
+					})
 				}
 			}
 			if mpvP, ok := p.player.(*mpv.Player); ok && !isTrack {
@@ -1007,14 +1012,14 @@ func (p *playbackEngine) setTrack(idx int, next bool, startTime float64) error {
 			} else if ok {
 				mpvP.UnobserveIcyRadioTitle()
 			}
-			if url == "" {
+			if source.URL == "" {
 				return errors.New("no stream URL")
 			}
 		}
 		if next {
-			return urlP.SetNextFile(url, meta)
+			return urlP.SetNextFile(source, meta)
 		}
-		return urlP.PlayFile(url, meta, startTime)
+		return urlP.PlayFile(source, meta, startTime)
 	} else if trP, ok := p.player.(player.TrackPlayer); ok {
 		var track *mediaprovider.Track
 		if idx >= 0 {
@@ -1032,21 +1037,51 @@ func (p *playbackEngine) setTrack(idx int, next bool, startTime float64) error {
 }
 
 func (p *playbackEngine) getMediaURLForIdx(idx int) string {
-	var url string
+	return p.getPlaybackSourceForIdx(idx).URL
+}
+
+func (p *playbackEngine) getPlaybackSourceForIdx(idx int) player.PlaybackSource {
 	item := p.getPlayQueueItemAt(idx)
 	if tr, ok := item.(*mediaprovider.Track); ok {
-		var ts *mediaprovider.TranscodeSettings
-		if p.transcodeCfg.RequestTranscode {
-			ts = &mediaprovider.TranscodeSettings{
-				Codec:       p.transcodeCfg.Codec,
-				BitRateKBPS: p.transcodeCfg.MaxBitRateKBPS,
-			}
+		transcode, forceRaw, policy := streamRequestForConfig(*p.transcodeCfg)
+		url, _ := p.sm.Server.GetStreamURL(tr.ID, transcode, forceRaw)
+		return player.PlaybackSource{
+			URL: url,
+			Descriptor: player.SourceDescriptor{
+				ServerID:        p.sm.ServerID.String(),
+				TrackID:         tr.ID,
+				LibraryCodec:    tr.ContentType,
+				LibrarySuffix:   tr.Extension,
+				LibrarySize:     tr.Size,
+				LibraryRate:     tr.SampleRate,
+				LibraryBits:     tr.BitDepth,
+				LibraryChannels: tr.Channels,
+			},
+			Receipt: player.NewSourceReceipt(policy),
 		}
-		url, _ = p.sm.Server.GetStreamURL(tr.ID, ts, p.transcodeCfg.ForceRawFile)
-	} else {
-		url = item.(*mediaprovider.RadioStation).StreamURL
 	}
-	return url
+
+	radio := item.(*mediaprovider.RadioStation)
+	return player.PlaybackSource{
+		URL: radio.StreamURL,
+		Descriptor: player.SourceDescriptor{
+			TrackID: radio.ID,
+		},
+		Receipt: player.NewSourceReceipt(player.DeliveryExternalStream),
+	}
+}
+
+func streamRequestForConfig(config TranscodingConfig) (*mediaprovider.TranscodeSettings, bool, player.DeliveryPolicy) {
+	if config.RequestTranscode {
+		return &mediaprovider.TranscodeSettings{
+			Codec:       config.Codec,
+			BitRateKBPS: config.MaxBitRateKBPS,
+		}, false, player.DeliveryTranscodeRequested
+	}
+	if config.ForceRawFile {
+		return nil, true, player.DeliveryRawRequested
+	}
+	return nil, false, player.DeliveryServerDefault
 }
 
 func (p *playbackEngine) setNextTrack(idx int) error {

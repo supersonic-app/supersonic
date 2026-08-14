@@ -1,6 +1,7 @@
 package jukebox
 
 import (
+	"sync"
 	"time"
 
 	"github.com/supersonic-app/supersonic/backend/mediaprovider"
@@ -27,7 +28,14 @@ type JukeboxPlayer struct {
 	curTrackDuration   float64
 	startTrackTime     float64
 	startedAtUnixMilli int64
+
+	signalPathOnce sync.Once
+	signalPath     *player.SignalPathState
 }
+
+var _ player.TrackPlayer = (*JukeboxPlayer)(nil)
+var _ player.SignalPathProvider = (*JukeboxPlayer)(nil)
+var _ player.CapabilityProvider = (*JukeboxPlayer)(nil)
 
 func (j *JukeboxPlayer) SetVolume(vol int) error {
 	if err := j.provider.JukeboxSetVolume(vol); err != nil {
@@ -91,6 +99,7 @@ func (j *JukeboxPlayer) PlayTrack(track *mediaprovider.Track, _ float64) error {
 	j.curTrack = 0
 	j.queueLength = 1
 	j.curTrackDuration = track.Duration.Seconds()
+	j.publishSignalPath(track)
 
 	return nil
 }
@@ -139,6 +148,72 @@ func (j *JukeboxPlayer) GetStatus() player.Status {
 }
 
 func (j *JukeboxPlayer) Destroy() {}
+
+func (j *JukeboxPlayer) PlaybackCapabilities() player.PlaybackCapabilities {
+	return player.PlaybackCapabilities{
+		EngineID: "jukebox",
+		Normal: player.ModeCapability{
+			Status: player.CapabilitySupported,
+		},
+		ExclusiveProcessed: player.ModeCapability{
+			Status: player.CapabilityUnsupported,
+			Reason: "the server-controlled player owns its output mode",
+		},
+		StrictPCM: player.ModeCapability{
+			Status: player.CapabilityUnsupported,
+			Reason: "the server-controlled DAC path cannot be verified locally",
+		},
+		StrictDoP: player.ModeCapability{
+			Status: player.CapabilityUnsupported,
+			Reason: "the server-controlled DSD path cannot be verified locally",
+		},
+		RemoteRenderer: player.ModeCapability{
+			Status: player.CapabilitySupported,
+		},
+	}
+}
+
+func (j *JukeboxPlayer) SignalPathSnapshot() player.PlaybackSnapshot {
+	return j.signalPathState().Snapshot()
+}
+
+func (j *JukeboxPlayer) OnSignalPathChange(callback func(player.PlaybackSnapshot)) {
+	j.signalPathState().OnChange(callback)
+}
+
+func (j *JukeboxPlayer) signalPathState() *player.SignalPathState {
+	j.signalPathOnce.Do(func() {
+		observation := player.SignalPathObservation{
+			Requested:      player.ModeNormal,
+			RemoteRenderer: true,
+			Receipt:        player.NewSourceReceipt(player.DeliveryRemoteControlled),
+		}
+		j.signalPath = player.NewSignalPathState(player.ReduceSignalPath(observation))
+	})
+	return j.signalPath
+}
+
+func (j *JukeboxPlayer) publishSignalPath(track *mediaprovider.Track) {
+	state := j.signalPathState()
+	snapshot := player.ReduceSignalPath(player.SignalPathObservation{
+		Requested: player.ModeNormal,
+		Source: player.SourceDescriptor{
+			TrackID:         track.ID,
+			LibraryCodec:    track.ContentType,
+			LibrarySuffix:   track.Extension,
+			LibrarySize:     track.Size,
+			LibraryRate:     track.SampleRate,
+			LibraryBits:     track.BitDepth,
+			LibraryChannels: track.Channels,
+		},
+		Receipt:        player.NewSourceReceipt(player.DeliveryRemoteControlled),
+		RemoteRenderer: true,
+		Generation:     state.Snapshot().Generation + 1,
+	})
+	state.Update(func(current *player.PlaybackSnapshot) {
+		*current = snapshot
+	})
+}
 
 func (j *JukeboxPlayer) startAndUpdateTime() error {
 	beforeStart := time.Now()

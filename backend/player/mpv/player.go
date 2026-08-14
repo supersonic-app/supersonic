@@ -50,6 +50,8 @@ type MediaInfo struct {
 }
 
 var _ player.URLPlayer = (*Player)(nil)
+var _ player.SignalPathProvider = (*Player)(nil)
+var _ player.CapabilityProvider = (*Player)(nil)
 
 // Player encapsulates the mpv instance and provides functions
 // to control it and to check its status.
@@ -72,6 +74,13 @@ type Player struct {
 	peaksEnabled   bool
 	pauseFade      bool
 
+	signalPathMu          sync.Mutex
+	signalPathObservation player.SignalPathObservation
+	signalPath            *player.SignalPathState
+	sourceMu              sync.Mutex
+	nextSource            player.PlaybackSource
+	haveNextSource        bool
+
 	icyTitleCb func(string)
 
 	fileLoadedLock sync.Mutex
@@ -90,9 +99,17 @@ func New() *Player {
 // Same as New, but sets the application name that mpv
 // reports to the system audio API.
 func NewWithClientName(c string) *Player {
+	observation := player.SignalPathObservation{
+		Requested: player.ModeNormal,
+		Output: player.OutputState{
+			Backend: "mpv",
+		},
+	}
 	p := &Player{
-		vol:        -1, // use 100 in Init
-		clientName: c,
+		vol:                   -1, // use 100 in Init
+		clientName:            c,
+		signalPathObservation: observation,
+		signalPath:            player.NewSignalPathState(player.ReduceSignalPath(observation)),
 	}
 	p.fileLoadedSig = sync.NewCond(&p.fileLoadedLock)
 	return p
@@ -148,14 +165,19 @@ func (p *Player) Init(maxCacheMB int) error {
 }
 
 // Plays the specified file, clearing the previous play queue, if any.
-func (p *Player) PlayFile(url string, _ mediaprovider.MediaItemMetadata, startTime float64) error {
+func (p *Player) PlayFile(source player.PlaybackSource, _ mediaprovider.MediaItemMetadata, startTime float64) error {
 	if !p.initialized {
 		return ErrUnitialized
 	}
-	err := p.mpv.Command([]string{"loadfile", url, "replace"})
+	p.sourceMu.Lock()
+	p.haveNextSource = false
+	p.nextSource = player.PlaybackSource{}
+	p.sourceMu.Unlock()
+	err := p.mpv.Command([]string{"loadfile", source.URL, "replace"})
 	if err != nil {
 		return err
 	}
+	p.setCurrentSource(source)
 	p.lenPlaylist = 1
 	if p.status.State == player.Paused {
 		err = p.Continue()
@@ -193,20 +215,28 @@ func (p *Player) Stop(_ bool) error {
 	return err
 }
 
-func (p *Player) SetNextFile(url string, _ mediaprovider.MediaItemMetadata) error {
+func (p *Player) SetNextFile(source player.PlaybackSource, _ mediaprovider.MediaItemMetadata) error {
 	if p.lenPlaylist > p.curPlaylistPos+1 {
 		if err := p.mpv.Command([]string{"playlist-remove", strconv.Itoa(int(p.curPlaylistPos) + 1)}); err != nil {
 			return err
 		}
 		p.lenPlaylist--
 	}
-	if url == "" {
+	p.sourceMu.Lock()
+	p.haveNextSource = false
+	p.nextSource = player.PlaybackSource{}
+	p.sourceMu.Unlock()
+	if source.URL == "" {
 		return nil
 	}
 
-	err := p.mpv.Command([]string{"loadfile", url, "append"})
+	err := p.mpv.Command([]string{"loadfile", source.URL, "append"})
 	if err == nil {
 		p.lenPlaylist++
+		p.sourceMu.Lock()
+		p.nextSource = source.Clone()
+		p.haveNextSource = true
+		p.sourceMu.Unlock()
 	}
 	return err
 }
@@ -236,10 +266,22 @@ func (p *Player) SetVolume(vol int) error {
 		err := p.mpv.SetProperty("volume", mpv.FORMAT_INT64, vol)
 		if err == nil {
 			p.vol = vol
+			p.setProcessingStage(player.ProcessingStage{
+				Kind:           player.ProcessingSoftwareVolume,
+				Active:         vol != 100,
+				ChangesSamples: true,
+				Reason:         "mpv software volume is not unity",
+			})
 		}
 		return err
 	}
 	p.vol = vol
+	p.setProcessingStage(player.ProcessingStage{
+		Kind:           player.ProcessingSoftwareVolume,
+		Active:         vol != 100,
+		ChangesSamples: true,
+		Reason:         "mpv software volume is not unity",
+	})
 	return nil
 }
 
@@ -272,6 +314,12 @@ func (p *Player) SetReplayGainOptions(options player.ReplayGainOptions) error {
 			return err
 		}
 	}
+	p.setProcessingStage(player.ProcessingStage{
+		Kind:           player.ProcessingReplayGain,
+		Active:         options.Mode != player.ReplayGainNone,
+		ChangesSamples: true,
+		Reason:         "ReplayGain is enabled",
+	})
 	return nil
 }
 
@@ -287,10 +335,25 @@ func (p *Player) SetAudioExclusive(tf bool) {
 		}
 		p.mpv.SetOptionString("audio-exclusive", val)
 	}
+	p.updateSignalPath(func(observation *player.SignalPathObservation) {
+		observation.Requested = player.ModeNormal
+		if tf {
+			observation.Requested = player.ModeExclusiveProcessed
+		}
+		observation.Output.ExclusiveKnown = false
+		observation.Negotiated = false
+		observation.RuntimeObserved = false
+	})
 }
 
 func (p *Player) SetPauseFade(pauseFade bool) {
 	p.pauseFade = pauseFade
+	p.setProcessingStage(player.ProcessingStage{
+		Kind:           player.ProcessingFade,
+		Active:         pauseFade,
+		ChangesSamples: true,
+		Reason:         "pause fade is enabled",
+	})
 }
 
 // Gets the current volume of the player.
@@ -411,12 +474,29 @@ func (p *Player) ListAudioDevices() ([]AudioDevice, error) {
 }
 
 func (p *Player) SetAudioDevice(deviceName string) error {
-	return p.mpv.SetPropertyString("audio-device", deviceName)
+	if err := p.mpv.SetPropertyString("audio-device", deviceName); err != nil {
+		return err
+	}
+	p.updateSignalPath(func(observation *player.SignalPathObservation) {
+		observation.Device.RequestedID = deviceName
+		observation.Device.IdentityKnown = false
+	})
+	return nil
 }
 
 func (p *Player) SetEqualizer(eq Equalizer) error {
 	p.equalizer = eq
-	return p.setAF()
+	if err := p.setAF(); err != nil {
+		return err
+	}
+	active := eq != nil && eq.IsEnabled() && (math.Abs(eq.Preamp()) > 0.01 || eq.Curve().String() != "")
+	p.setProcessingStage(player.ProcessingStage{
+		Kind:           player.ProcessingEqualizer,
+		Active:         active,
+		ChangesSamples: true,
+		Reason:         "equalizer or equalizer preamp is active",
+	})
+	return nil
 }
 
 func (p *Player) Equalizer() Equalizer {
@@ -444,6 +524,123 @@ func (p *Player) GetMediaInfo() (MediaInfo, error) {
 	}
 
 	return info, nil
+}
+
+func (p *Player) PlaybackCapabilities() player.PlaybackCapabilities {
+	return player.PlaybackCapabilities{
+		EngineID: "mpv",
+		Normal: player.ModeCapability{
+			Status: player.CapabilitySupported,
+		},
+		ExclusiveProcessed: player.ModeCapability{
+			Status: player.CapabilityUnverified,
+			Reason: "current libmpv does not expose effective exclusive state",
+		},
+		StrictPCM: player.ModeCapability{
+			Status: player.CapabilityUnverified,
+			Reason: "strict PCM requires effective output and conversion telemetry",
+		},
+		StrictDoP: player.ModeCapability{
+			Status: player.CapabilityUnsupported,
+			Reason: "mpv does not preserve raw DSD for DoP transport",
+		},
+		RemoteRenderer: player.ModeCapability{
+			Status: player.CapabilityUnsupported,
+		},
+	}
+}
+
+func (p *Player) SignalPathSnapshot() player.PlaybackSnapshot {
+	return p.signalPath.Snapshot()
+}
+
+func (p *Player) OnSignalPathChange(callback func(player.PlaybackSnapshot)) {
+	p.signalPath.OnChange(callback)
+}
+
+func (p *Player) updateSignalPath(update func(*player.SignalPathObservation)) {
+	p.signalPathMu.Lock()
+	update(&p.signalPathObservation)
+	snapshot := player.ReduceSignalPath(p.signalPathObservation)
+	p.signalPathMu.Unlock()
+	p.signalPath.Update(func(current *player.PlaybackSnapshot) {
+		*current = snapshot
+	})
+}
+
+func (p *Player) setCurrentSource(source player.PlaybackSource) {
+	p.updateSignalPath(func(observation *player.SignalPathObservation) {
+		observation.Source = source.Descriptor
+		observation.Receipt = source.Receipt.Clone()
+		observation.Decoder = player.DecoderState{}
+		observation.Output.FormatKnown = false
+		observation.Output.ProcessingKnown = false
+		observation.Negotiated = false
+		observation.RuntimeObserved = false
+		observation.HardwareVerified = false
+		observation.Fallback = nil
+		observation.Generation++
+	})
+}
+
+func (p *Player) promoteNextSource() {
+	p.sourceMu.Lock()
+	if !p.haveNextSource {
+		p.sourceMu.Unlock()
+		return
+	}
+	source := p.nextSource.Clone()
+	p.nextSource = player.PlaybackSource{}
+	p.haveNextSource = false
+	p.sourceMu.Unlock()
+	p.setCurrentSource(source)
+}
+
+func (p *Player) refreshDecoderState() {
+	info, err := p.GetMediaInfo()
+	if err != nil {
+		return
+	}
+	lossless := isLosslessCodec(info.Codec)
+	p.updateSignalPath(func(observation *player.SignalPathObservation) {
+		observation.Decoder = player.DecoderState{
+			Available: true,
+			Codec:     info.Codec,
+			Bitrate:   info.Bitrate,
+			Format: player.AudioFormat{
+				SampleFormat: info.Format,
+				SampleRate:   info.Samplerate,
+				Channels:     info.ChannelCount,
+			},
+			Lossless: lossless,
+		}
+		observation.Receipt.DeliveredCodec = info.Codec
+		observation.Receipt.DeliveredRate = info.Samplerate
+		observation.Receipt.DeliveredChannels = info.ChannelCount
+		observation.Receipt.DeliveredLossless = lossless
+		observation.Receipt.LosslessKnown = info.Codec != ""
+	})
+}
+
+func isLosslessCodec(codec string) bool {
+	switch strings.ToLower(codec) {
+	case "alac", "ape", "flac", "mlp", "tak", "truehd", "tta", "wavpack":
+		return true
+	default:
+		return strings.HasPrefix(strings.ToLower(codec), "pcm_")
+	}
+}
+
+func (p *Player) setProcessingStage(stage player.ProcessingStage) {
+	p.updateSignalPath(func(observation *player.SignalPathObservation) {
+		for i := range observation.Processing {
+			if observation.Processing[i].Kind == stage.Kind {
+				observation.Processing[i] = stage
+				return
+			}
+		}
+		observation.Processing = append(observation.Processing, stage)
+	})
 }
 
 func (p *Player) ObserveIcyRadioTitle(cb func(string)) {
@@ -489,7 +686,16 @@ func (p *Player) SetPeaksEnabled(enabled bool) error {
 		return nil
 	}
 	p.peaksEnabled = enabled
-	return p.setAF()
+	if err := p.setAF(); err != nil {
+		return err
+	}
+	p.setProcessingStage(player.ProcessingStage{
+		Kind:           player.ProcessingAnalyzer,
+		Active:         enabled,
+		ChangesSamples: false,
+		Reason:         "mpv astats peak analyzer is inserted in the audio filter graph",
+	})
+	return nil
 }
 
 func (p *Player) GetPeaks() (float64, float64, float64, float64) {
@@ -550,7 +756,12 @@ func (p *Player) eventHandler(ctx context.Context) {
 				p.seeking = false
 				p.InvokeOnSeek()
 			case mpv.EVENT_FILE_LOADED:
+				previousPlaylistPos := p.curPlaylistPos
 				p.curPlaylistPos, _ = p.getInt64Property("playlist-pos")
+				if p.curPlaylistPos != previousPlaylistPos {
+					p.promoteNextSource()
+				}
+				p.refreshDecoderState()
 				if p.status.State == player.Paused {
 					// seek while paused switches to a new file
 					// mpv does not fire seek event in this case

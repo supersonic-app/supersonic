@@ -317,6 +317,35 @@ func (p *PlaybackManager) CurrentPlayer() player.BasePlayer {
 	return p.engine.CurrentPlayer()
 }
 
+// SignalPathSnapshot returns the current backend's immutable, redacted view of
+// the active playback path. Unknown backends fail closed instead of inheriting
+// claims from the previously active player.
+func (p *PlaybackManager) SignalPathSnapshot() player.PlaybackSnapshot {
+	if provider, ok := p.engine.CurrentPlayer().(player.SignalPathProvider); ok {
+		return provider.SignalPathSnapshot()
+	}
+	return player.ReduceSignalPath(player.SignalPathObservation{
+		Requested: player.ModeNormal,
+		Fallback: &player.FallbackReason{
+			Code:   player.FallbackEffectiveModeUnknown,
+			Detail: "the active player does not report signal-path state",
+		},
+	})
+}
+
+func (p *PlaybackManager) PlaybackCapabilities() player.PlaybackCapabilities {
+	if provider, ok := p.engine.CurrentPlayer().(player.CapabilityProvider); ok {
+		return provider.PlaybackCapabilities()
+	}
+	return player.PlaybackCapabilities{
+		EngineID: "unknown",
+		Normal: player.ModeCapability{
+			Status: player.CapabilityUnverified,
+			Reason: "the active player does not report capabilities",
+		},
+	}
+}
+
 func (p *PlaybackManager) OnPlayerChange(cb func()) {
 	p.onPlayerChange = append(p.onPlayerChange, cb)
 }
