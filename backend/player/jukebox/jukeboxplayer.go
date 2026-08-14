@@ -31,11 +31,9 @@ type JukeboxPlayer struct {
 
 	trackChangeTimer common.TrackChangeTimer
 
-	curTrack           int
-	queueLength        int
-	curTrackDuration   float64
-	startTrackTime     float64
-	startedAtUnixMilli int64
+	curTrack         int
+	queueLength      int
+	curTrackDuration float64
 }
 
 func NewJukeboxPlayer(provider mediaprovider.JukeboxProvider) (*JukeboxPlayer, error) {
@@ -60,11 +58,12 @@ func (j *JukeboxPlayer) Continue() error {
 	if j.state == playing {
 		return nil
 	}
-	if err := j.startAndUpdateTime(); err != nil {
+	if err := j.provider.JukeboxStart(); err != nil {
 		return err
 	}
 
 	j.state = playing
+	j.stopwatch.Start()
 	j.InvokeOnPlaying()
 	return nil
 }
@@ -76,7 +75,7 @@ func (j *JukeboxPlayer) Pause() error {
 	if err := j.provider.JukeboxStop(); err != nil {
 		return err
 	}
-	// TODO: calculate paused at time
+	j.stopwatch.Stop()
 	j.state = paused
 	j.InvokeOnPaused()
 	return nil
@@ -90,22 +89,34 @@ func (j *JukeboxPlayer) Stop(_ bool) error {
 		return err
 	}
 	j.state = stopped
+	j.lastStartTime = 0
+	j.stopwatch.Reset()
 	j.InvokeOnStopped()
 	return nil
 }
 
-func (j *JukeboxPlayer) PlayTrack(track *mediaprovider.Track, _ float64) error {
+func (j *JukeboxPlayer) PlayTrack(track *mediaprovider.Track, startTime float64) error {
 	if err := j.provider.JukeboxSet(track.ID); err != nil {
 		return err
 	}
-	j.startTrackTime = 0
-	if err := j.startAndUpdateTime(); err != nil {
+	if err := j.provider.JukeboxStart(); err != nil {
 		return err
 	}
 
 	j.curTrack = 0
 	j.queueLength = 1
 	j.curTrackDuration = track.Duration.Seconds()
+
+	if startTime > 0 {
+		if err := j.provider.JukeboxSeek(j.curTrack, int(startTime)); err != nil {
+			return err
+		}
+	}
+	j.lastStartTime = int(startTime)
+	j.stopwatch.Reset()
+	j.stopwatch.Start()
+	j.state = playing
+	j.InvokeOnPlaying()
 
 	return nil
 }
@@ -148,9 +159,9 @@ func (j *JukeboxPlayer) GetStatus() player.Status {
 	}
 
 	return player.Status{
-		State:   state,
-		TimePos: j.curPlayPos().Seconds(),
-		//Duration: TODO
+		State:    state,
+		TimePos:  j.curPlayPos().Seconds(),
+		Duration: j.curTrackDuration,
 	}
 }
 
@@ -174,17 +185,4 @@ func (j *JukeboxPlayer) handleOnTrackChange() {
 		j.trackChangeTimer.Reset(0 /*TODO: next track time*/)
 		j.InvokeOnTrackChange()
 	}
-}
-
-func (j *JukeboxPlayer) startAndUpdateTime() error {
-	beforeStart := time.Now()
-	if err := j.provider.JukeboxStart(); err != nil {
-		return err
-	}
-	afterStart := time.Now()
-
-	// assume track started playing at (ie has been playing for)
-	// half the round-trip latency
-	j.startedAtUnixMilli = time.Now().Add(-afterStart.Sub(beforeStart)).UnixMilli()
-	return nil
 }
