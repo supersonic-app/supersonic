@@ -68,6 +68,11 @@ type RemotePlaybackDevice struct {
 	new      func() (player.BasePlayer, error)
 }
 
+// JukeboxProtocol is the RemotePlaybackDevice.Protocol value for server-side
+// Jukebox playback, so callers (e.g. the UI cast menu) can special-case it
+// without depending on the device Name string.
+const JukeboxProtocol = "Jukebox"
+
 // jukeboxDeviceURL identifies the RemotePlaybackDevice for server-side Jukebox
 // playback. Unlike DLNA devices (identified by their real network URL), the
 // Jukebox device isn't discovered on the network - it's synthesized from the
@@ -297,7 +302,7 @@ func (p *PlaybackManager) RemotePlayers() []RemotePlaybackDevice {
 		players = append(players, RemotePlaybackDevice{
 			Name:     "Jukebox",
 			URL:      jukeboxDeviceURL,
-			Protocol: "Jukebox",
+			Protocol: JukeboxProtocol,
 			new: func() (player.BasePlayer, error) {
 				return jukebox.NewJukeboxPlayer(jp)
 			},
