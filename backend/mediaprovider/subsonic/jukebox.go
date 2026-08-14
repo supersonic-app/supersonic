@@ -2,6 +2,7 @@ package subsonic
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 
 	"github.com/supersonic-app/supersonic/backend/mediaprovider"
@@ -78,6 +79,9 @@ func (s *subsonicMediaProvider) JukeboxSupported() bool {
 	s.jukeboxSupportOnce.Do(func() {
 		_, err := s.client.JukeboxControl("status", nil)
 		s.jukeboxSupported = err == nil
+		if err != nil {
+			log.Printf("jukebox: server does not support jukebox playback (or it's not permitted for this user): %v", err)
+		}
 	})
 	return s.jukeboxSupported
 }
