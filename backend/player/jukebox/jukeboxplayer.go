@@ -73,7 +73,21 @@ func (j *JukeboxPlayer) SetVolume(vol int) error {
 	return nil
 }
 
+// GetVolume queries the server for the jukebox's actual current volume,
+// rather than relying purely on the last value set through this player
+// instance. This matters right after switching to the Jukebox player: with a
+// freshly constructed JukeboxPlayer, j.volume defaults to its zero value, and
+// PlaybackManager reads GetVolume() immediately to decide whether to fire a
+// volume-changed callback (see playbackEngine.SetPlayer) - without querying
+// the server, that would always report 0 and yank the volume slider down
+// regardless of the jukebox's actual (possibly nonzero) volume.
 func (j *JukeboxPlayer) GetVolume() int {
+	if j.destroyed {
+		return j.volume
+	}
+	if stat, err := j.provider.JukeboxGetStatus(); err == nil {
+		j.volume = stat.Volume
+	}
 	return j.volume
 }
 
