@@ -150,6 +150,15 @@ func (j *JukeboxPlayer) PlayTrack(track *mediaprovider.Track, startTime float64)
 	j.state = playing
 	j.trackChangeTimer.Reset(j.remainingTrackTime())
 	j.InvokeOnPlaying()
+	// PlayTrack is called both for user-initiated track changes (e.g.
+	// skip/select) and when the engine transfers an already-playing track
+	// to this player (e.g. switching cast devices mid-song). Either way,
+	// the engine only advances its own now-playing index/UI in response to
+	// this callback - matches DLNAPlayer.PlayFile.
+	j.InvokeOnTrackChange()
+	if startTime > 0 {
+		j.InvokeOnSeek()
+	}
 
 	go j.scheduleSync(syncSettleDelay)
 	return nil
