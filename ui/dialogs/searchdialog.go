@@ -175,9 +175,9 @@ func (sd *SearchDialog) onSearched(query string) {
 		} else {
 			results = res
 		}
-		if(sd.resultsGeneration < generation) {
+		if sd.resultsGeneration < generation {
 			fyne.Do(func() {
-				if(sd.pendingResultsGeneration == generation) {
+				if sd.pendingResultsGeneration == generation {
 					sd.loadingDots.Stop()
 				}
 				sd.setResults(results)
