@@ -35,12 +35,12 @@ type SearchDialog struct {
 	OnShowContextMenu func(itemIdx int, pos fyne.Position)
 	OnSearched        func(string) []*mediaprovider.SearchResult
 
-	imgSource     util.ImageFetcher
-	resultsMutex  sync.RWMutex
-	resultsGeneration int
+	imgSource                util.ImageFetcher
+	resultsMutex             sync.RWMutex
+	resultsGeneration        int
 	pendingResultsGeneration int
-	searchResults []*mediaprovider.SearchResult
-	selectedIndex int
+	searchResults            []*mediaprovider.SearchResult
+	selectedIndex            int
 
 	searchEntry *searchEntry
 	loadingDots *widgets.LoadingDots
