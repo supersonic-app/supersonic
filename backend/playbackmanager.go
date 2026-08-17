@@ -136,12 +136,15 @@ func (p *PlaybackManager) addOnTrackChangeHook() {
 				p.addWfmImageJob(p.wfmGen.StartWaveformGeneration(item.(*mediaprovider.Track)))
 			}
 		}
-		if p.isLoadTrackPaused() {
-			// we need to call handleWaveformImageSongChange to ensure the waveform image is updated
-			// for the track that is loaded paused when starting the app
-			p.handleWaveformImageSongChange(item)
-			p.wasLoadTrackPaused = true
+	})
+	p.engine.onLoadTrackPaused = append(p.engine.onLoadTrackPaused, func(item mediaprovider.MediaItem) {
+		if item == nil || !p.engine.playbackCfg.UseWaveformSeekbar {
+			return
 		}
+		// we need to call handleWaveformImageSongChange here to ensure the waveform image is updated
+		// for the track that is loaded paused when starting the app
+		p.handleWaveformImageSongChange(item)
+		p.wasLoadTrackPaused = true
 	})
 
 	p.OnSongChange(func(item mediaprovider.MediaItem, _ *mediaprovider.Track) {
@@ -554,10 +557,6 @@ func (p *PlaybackManager) PlayTrackAt(idx int) {
 // starting MPV. Call Continue (or PlayPause) to begin actual playback.
 func (p *PlaybackManager) LoadTrackPaused(idx int, startTime float64) {
 	p.cmdQueue.LoadTrackPaused(idx, startTime)
-}
-
-func (p *PlaybackManager) isLoadTrackPaused() bool {
-	return p.engine.pendingLoadPaused
 }
 
 func (p *PlaybackManager) PlayRandomSongs(genreName string) error {
