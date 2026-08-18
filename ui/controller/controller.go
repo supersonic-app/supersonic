@@ -2,6 +2,7 @@ package controller
 
 import (
 	"archive/zip"
+	"context"
 	"errors"
 	"fmt"
 	"image"
@@ -383,6 +384,7 @@ func (c *Controller) ShowSettingsDialog(themeUpdateCallbk func(), themeFiles map
 		fynetooltip.DestroyPopUpToolTipLayer(pop)
 		c.doModalClosed()
 		c.App.SaveConfigFile()
+		go c.App.PlaybackManager.ScanRemotePlayers(context.Background(), true)
 	}
 	c.ClosePopUpOnEscape(pop)
 	c.haveModal = true

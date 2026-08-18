@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net"
 	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/charlievieth/strcase"
+	"github.com/koron/go-ssdp"
 	"github.com/supersonic-app/go-upnpcast/device"
 	"github.com/supersonic-app/go-upnpcast/services"
 	"github.com/supersonic-app/supersonic/backend/mediaprovider"
@@ -39,6 +42,7 @@ type PlaybackManager struct {
 
 	localPlayer         player.BasePlayer
 	remotePlayersLock   sync.Mutex
+	remoteScanLock      sync.Mutex
 	remotePlayers       []RemotePlaybackDevice
 	currentRemotePlayer *RemotePlaybackDevice
 
@@ -59,6 +63,10 @@ type PlaybackManager struct {
 	radioIcyTitle    string
 	radioIcyArtist   string
 }
+
+// go-ssdp stores the selected interfaces in package-global state. Serialize
+// every discovery that changes or reads that state, including settings scans.
+var ssdpDiscoveryLock sync.Mutex
 
 type RemotePlaybackDevice struct {
 	Name     string
@@ -251,9 +259,16 @@ func (p *PlaybackManager) ScanRemotePlayers(ctx context.Context, fastScan bool) 
 }
 
 func (p *PlaybackManager) scanRemotePlayers(ctx context.Context, waitSec int) {
-	devices, _ := device.SearchMediaRenderers(ctx, waitSec, services.AVTransport, services.RenderingControl)
+	p.remoteScanLock.Lock()
+	defer p.remoteScanLock.Unlock()
+
+	devices := searchMediaRenderers(ctx, waitSec, p.appCfg)
+	if len(devices) == 0 {
+		devices = discoverConfiguredRemotePlayers(ctx, p.appCfg.DLNARendererURLs)
+	}
 
 	coverArtPathFn := p.CoverArtPathFn
+	proxyIP := configuredDLNAProxyIP(p.appCfg)
 	var discovered []RemotePlaybackDevice
 	for _, d := range devices {
 		rp := RemotePlaybackDevice{
@@ -261,7 +276,7 @@ func (p *PlaybackManager) scanRemotePlayers(ctx context.Context, waitSec int) {
 			URL:      d.URL,
 			Protocol: "DLNA",
 			new: func() (player.BasePlayer, error) {
-				return dlna.NewDLNAPlayer(d, coverArtPathFn)
+				return dlna.NewDLNAPlayerWithLocalIP(d, coverArtPathFn, proxyIP)
 			},
 		}
 		discovered = append(discovered, rp)
@@ -270,6 +285,87 @@ func (p *PlaybackManager) scanRemotePlayers(ctx context.Context, waitSec int) {
 	p.remotePlayersLock.Lock()
 	p.remotePlayers = discovered
 	p.remotePlayersLock.Unlock()
+}
+
+func configuredDLNAProxyIP(appCfg *AppConfig) string {
+	if runtime.GOOS != "linux" || appCfg.UseDefaultSSDPInterface || appCfg.SSDPInterfaceName == "" {
+		return ""
+	}
+
+	iface, err := net.InterfaceByName(appCfg.SSDPInterfaceName)
+	if err != nil {
+		return ""
+	}
+	addresses, err := iface.Addrs()
+	if err != nil {
+		return ""
+	}
+	for _, address := range addresses {
+		ip, _, err := net.ParseCIDR(address.String())
+		if err == nil && ip.To4() != nil {
+			return ip.String()
+		}
+	}
+	return ""
+}
+
+func discoverConfiguredRemotePlayers(ctx context.Context, configured string) []*device.MediaRenderer {
+	if configured == "" {
+		return nil
+	}
+
+	var devices []*device.MediaRenderer
+	for _, rawURL := range strings.Split(configured, ",") {
+		rawURL = strings.TrimSpace(rawURL)
+		if rawURL == "" {
+			continue
+		}
+		renderer, err := device.MediaRendererFromDeviceURL(ctx, rawURL)
+		if err != nil {
+			log.Printf("DLNA: failed to load configured renderer %s: %v", rawURL, err)
+			continue
+		}
+		log.Printf("DLNA: using configured renderer %s (%s)", renderer.FriendlyName, renderer.URL)
+		devices = append(devices, renderer)
+	}
+	return devices
+}
+
+// configureSSDPInterface optionally limits Linux SSDP discovery to the
+// interface selected in Advanced settings. The default keeps go-ssdp's
+// original all-interface behavior.
+func configureSSDPInterface(appCfg *AppConfig) {
+	if runtime.GOOS != "linux" {
+		return
+	}
+
+	if appCfg.UseDefaultSSDPInterface {
+		// Leave go-ssdp's original all-interface behavior unchanged.
+		ssdp.Interfaces = nil
+		return
+	}
+
+	name := appCfg.SSDPInterfaceName
+	if name == "" {
+		log.Printf("SSDP: no interface selected; using default discovery behavior")
+		return
+	}
+	iface, err := net.InterfaceByName(name)
+	if err != nil {
+		log.Printf("SSDP: failed to use interface %q: %v", name, err)
+		return
+	}
+	ssdp.Interfaces = []net.Interface{*iface}
+	log.Printf("SSDP: using interface %s", iface.Name)
+}
+
+func searchMediaRenderers(ctx context.Context, waitSec int, appCfg *AppConfig) []*device.MediaRenderer {
+	ssdpDiscoveryLock.Lock()
+	defer ssdpDiscoveryLock.Unlock()
+
+	configureSSDPInterface(appCfg)
+	devices, _ := device.SearchMediaRenderers(ctx, waitSec, services.AVTransport, services.RenderingControl)
+	return devices
 }
 
 func (p *PlaybackManager) RemotePlayers() []RemotePlaybackDevice {
