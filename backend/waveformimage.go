@@ -23,6 +23,16 @@ import (
 
 type WaveformImageGenerator struct {
 	audioCache *AudioCache
+
+	// converter is a single, long-lived mpv core used to transcode audio
+	// files to WAV for waveform analysis. Previously a new mpv core was
+	// created and destroyed for every waveform job (i.e. on every track
+	// switch that wasn't already cached); reusing one core instead avoids
+	// repeated full libmpv init/teardown cycles right at track-switch time.
+	converterOnce sync.Once
+	converter     *mpv.Mpv
+	converterErr  error
+	convertMu     sync.Mutex // serializes use of the shared converter core
 }
 
 // Buffer pool for waveform analysis to reduce allocations
@@ -435,33 +445,64 @@ func float64ToByte(val float64) byte {
 	return byte(val * 255)
 }
 
+// converterCore lazily creates the single, long-lived mpv core used for all
+// WAV conversions. It's created on first use rather than in
+// NewWaveformImageGenerator so that if waveform generation is never
+// triggered, no mpv core is ever spun up.
+func (w *WaveformImageGenerator) converterCore() (*mpv.Mpv, error) {
+	w.converterOnce.Do(func() {
+		m := mpv.Create()
+		// Don't load the user's mpv config/scripts into this internal,
+		// invisible, disk-to-disk conversion core.
+		m.SetOptionString("config", "no")
+		m.SetOptionString("video", "no")
+		m.SetOptionString("audio-display", "no")
+		m.SetOptionString("terminal", "no")
+		m.SetOptionString("idle", "yes")
+		// Screensaver inhibition is meaningless for a silent, invisible
+		// conversion job.
+		m.SetOptionString("stop-screensaver", "no")
+		m.SetOptionString("ao", "pcm")
+		m.SetOption("volume", mpv.FORMAT_INT64, 100)
+		// no need to preserve full sample resolution just for waveform image
+		// let's make less data to process and smaller on-disk file
+		m.SetOption("audio-samplerate", mpv.FORMAT_INT64, 22050)
+		m.SetOptionString("audio-channels", "mono")
+		m.SetOptionString("audio-format", "s16")
+		if err := m.Initialize(); err != nil {
+			w.converterErr = err
+			return
+		}
+		w.converter = m
+	})
+	return w.converter, w.converterErr
+}
+
 func (w *WaveformImageGenerator) convertToWav(ctx context.Context, id, inPath, outPath string) error {
-	m := mpv.Create()
-	m.SetOptionString("video", "no")
-	m.SetOptionString("audio-display", "no")
-	m.SetOptionString("terminal", "no")
-	m.SetOptionString("idle", "yes")
-	m.SetOptionString("ao-pcm-file", outPath)
-	m.SetOptionString("ao", "pcm")
-	m.SetOption("volume", mpv.FORMAT_INT64, 100)
-	// no need to preserve full sample resolution just for waveform image
-	// let's make less data to process and smaller on-disk file
-	m.SetOption("audio-samplerate", mpv.FORMAT_INT64, 22050)
-	m.SetOptionString("audio-channels", "mono")
-	m.SetOptionString("audio-format", "s16")
-	if err := m.Initialize(); err != nil {
+	m, err := w.converterCore()
+	if err != nil {
 		return err
 	}
 
-	defer m.TerminateDestroy()
+	// Only one conversion can run on the shared core at a time.
+	w.convertMu.Lock()
+	defer w.convertMu.Unlock()
 
-	m.Command([]string{"loadfile", inPath, "replace"})
+	if err := m.SetOptionString("ao-pcm-file", outPath); err != nil {
+		return err
+	}
+	if err := m.Command([]string{"loadfile", inPath, "replace"}); err != nil {
+		return err
+	}
 	defer w.audioCache.ReleaseReferenceToFile(id)
 
 	// Wait for MPV idle or ctx expiry
 	for {
 		select {
 		case <-ctx.Done():
+			// Stop this job's playback so the shared core is idle again
+			// and ready for the next queued conversion.
+			m.Command([]string{"stop"})
 			return ctx.Err()
 		default:
 			// use small timeout to allow detecting ctx expiry
@@ -481,6 +522,19 @@ func (w *WaveformImageGenerator) convertToWav(ctx context.Context, id, inPath, o
 				return nil
 			}
 		}
+	}
+}
+
+// Close releases the shared mpv core used for waveform conversion, if one
+// was ever created. Must be called during app shutdown to avoid leaking the
+// mpv core; safe to call even if no conversion was ever performed.
+func (w *WaveformImageGenerator) Close() {
+	w.convertMu.Lock()
+	defer w.convertMu.Unlock()
+	if w.converter != nil {
+		w.converter.Command([]string{"stop"})
+		w.converter.TerminateDestroy()
+		w.converter = nil
 	}
 }
 
