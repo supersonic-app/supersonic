@@ -66,10 +66,11 @@ type playbackEngine struct {
 	audiocache    *AudioCache
 	player        player.BasePlayer
 
-	playTimeStopwatch   util.Stopwatch
-	curTrackDuration    float64
-	latestTrackPosition float64 // cleared by checkScrobble
-	callbacksDisabled   bool
+	playTimeStopwatch         util.Stopwatch
+	curTrackDuration          float64
+	latestTrackPosition       float64 // furthest position reached; cleared by checkScrobble
+	lastObservedTrackPosition float64
+	callbacksDisabled         bool
 
 	playQueue         []mediaprovider.MediaItem
 	shuffledPlayQueue []mediaprovider.MediaItem
@@ -81,9 +82,10 @@ type playbackEngine struct {
 
 	pauseAfterCurrent bool // flag to pause playback after current track ends
 
-	// flags for handleOnTrackChange / handleOnStopped callbacks - reset to false in the callbacks
-	wasStopped       bool // true iff player was stopped before handleOnTrackChange invocation
-	alreadyScrobbled bool // true iff the previously-playing track was already scrobbled
+	// flags for player callbacks
+	wasStopped               bool // true iff player was stopped before handleOnTrackChange invocation
+	alreadyScrobbled         bool // true iff the previously-playing track was already scrobbled
+	resumeAfterPlaybackError bool
 
 	// if >= 0, track number that was requested by PlayTrackAt
 	// onTrackChange callback should set nowPlayingIdx to this,
@@ -185,6 +187,9 @@ func (p *playbackEngine) registerPlayerCallbacks(pl player.BasePlayer) {
 		p.reportPlayback(seekState)
 	})
 	pl.OnStopped(p.handleOnStopped)
+	if ep, ok := pl.(player.PlaybackErrorPlayer); ok {
+		ep.OnPlaybackError(p.handlePlaybackError)
+	}
 	pl.OnPaused(func() {
 		p.playTimeStopwatch.Stop()
 		p.stopPollTimePos()
@@ -205,6 +210,9 @@ func (p *playbackEngine) unregisterPlayerCallbacks(pl player.BasePlayer) {
 	pl.OnStopped(nil)
 	pl.OnSeek(nil)
 	pl.OnTrackChange(nil)
+	if ep, ok := pl.(player.PlaybackErrorPlayer); ok {
+		ep.OnPlaybackError(nil)
+	}
 }
 
 func (p *playbackEngine) SetPlayer(pl player.BasePlayer) error {
@@ -278,6 +286,7 @@ func (p *playbackEngine) getPlayQueueLength() int {
 
 func (p *playbackEngine) clearPlayQueue() {
 	p.checkScrobble()
+	p.resumeAfterPlaybackError = false
 	p.player.Stop(false)
 	p.nowPlayingIdx = -1
 	p.playQueue = nil
@@ -534,6 +543,7 @@ func (p *playbackEngine) IsSeeking() bool {
 }
 
 func (p *playbackEngine) Stop() error {
+	p.resumeAfterPlaybackError = false
 	if p.pendingLoadPaused {
 		p.pendingLoadPaused = false
 		p.pendingLoadStartTime = 0
@@ -757,7 +767,7 @@ func (p *playbackEngine) RemoveTracksFromQueue(idxs []int) {
 		newPlayQueue := make([]mediaprovider.MediaItem, 0, p.getPlayQueueLength()-len(idxs))
 		for _, tr := range p.getPlayQueue() {
 			if slices.Contains(ids, tr.Metadata().ID) {
-				//remove id from id list, handles having the same track present multiple times in playQueue
+				// remove id from id list, handles having the same track present multiple times in playQueue
 				idx := slices.Index(ids, tr.Metadata().ID)
 				ids = slices.Delete(ids, idx, idx+1)
 			} else {
@@ -897,6 +907,8 @@ func (p *playbackEngine) cacheNextTracks() {
 }
 
 func (p *playbackEngine) handleOnTrackChange() {
+	p.resumeAfterPlaybackError = false
+	p.lastObservedTrackPosition = 0
 	// scrobble the previous song if needed
 	if !p.alreadyScrobbled {
 		p.checkScrobble()
@@ -932,15 +944,36 @@ func (p *playbackEngine) handleOnTrackChange() {
 		p.Pause()
 		p.SetPauseAfterCurrent(false)
 	}
+}
 
+func (p *playbackEngine) handlePlaybackError(err error) {
+	log.Printf("Playback error: %v", err)
+	if p.isRadio || p.nowPlayingIdx < 0 {
+		return
+	}
+	if position := p.PlaybackStatus().TimePos; position > 0 {
+		p.lastObservedTrackPosition = position
+	}
+	p.resumeAfterPlaybackError = true
 }
 
 func (p *playbackEngine) handleOnStopped() {
 	p.playTimeStopwatch.Stop()
+	p.stopPollTimePos()
+
+	if p.resumeAfterPlaybackError {
+		p.resumeAfterPlaybackError = false
+		p.pendingLoadPaused = true
+		p.pendingLoadStartTime = p.lastObservedTrackPosition
+		p.handleTimePosUpdate(false)
+		p.invokeNoArgCallbacks(p.onPaused)
+		p.reportPlayback("paused")
+		return
+	}
+
 	if !p.alreadyScrobbled {
 		p.checkScrobble()
 	}
-	p.stopPollTimePos()
 	p.handleTimePosUpdate(false)
 	p.invokeOnSongChangeCallbacks()
 	p.invokeNoArgCallbacks(p.onStopped)
@@ -1205,6 +1238,9 @@ func (p *playbackEngine) handleTimePosUpdate(seeked bool) {
 	}
 	if p.callbacksDisabled {
 		return
+	}
+	if s.TimePos >= 0 {
+		p.lastObservedTrackPosition = s.TimePos
 	}
 	if s.TimePos > p.latestTrackPosition {
 		p.latestTrackPosition = s.TimePos
