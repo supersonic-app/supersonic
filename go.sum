@@ -105,8 +105,8 @@ github.com/pelletier/go-toml/v2 v2.4.2 h1:M2fKKbmyvI+hGId/D0W64qDBMVhJnNR10O5gIb
 github.com/pelletier/go-toml/v2 v2.4.2/go.mod h1:2gIqNv+qfxSVS7cM2xJQKtLSTLUE9V8t9Stt+h56mCY=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/quarckster/go-mpris-server v1.0.3 h1:ef6d3DpxlORtdEBHnhQ/j3gS0Z3+YUfXeJhC9L9DZvA=
-github.com/quarckster/go-mpris-server v1.0.3/go.mod h1:2b4IdrpnEoEfU+6fQKjYhAgdvsiz4JxmTpDAUrMJVO4=
+github.com/quarckster/go-mpris-server v1.2.0 h1:9kJmD5ycH97QGVvYcpepQCMCcgTRLkN4P96AZpW9WaY=
+github.com/quarckster/go-mpris-server v1.2.0/go.mod h1:HF++X+MReXkM0MWStenUOwkXZxRN9HFva3ouqX77HuE=
 github.com/rymdport/portal v0.4.2 h1:7jKRSemwlTyVHHrTGgQg7gmNPJs88xkbKcIL3NlcmSU=
 github.com/rymdport/portal v0.4.2/go.mod h1:kFF4jslnJ8pD5uCi17brj/ODlfIidOxlgUDTO5ncnC4=
 github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c h1:km8GpoQut05eY3GiYWEedbTT0qnSxrCjsVbb7yKY1KE=

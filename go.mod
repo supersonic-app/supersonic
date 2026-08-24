@@ -19,7 +19,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/pelletier/go-toml/v2 v2.4.2
-	github.com/quarckster/go-mpris-server v1.0.3
+	github.com/quarckster/go-mpris-server v1.2.0
 	github.com/supersonic-app/fyne-lyrics v0.0.0-20250614151306-b1880a70a410
 	github.com/supersonic-app/go-mpv v0.1.1-0.20250822102843-7a8cde5f5449
 	github.com/supersonic-app/go-subsonic v0.0.0-20260416152144-7a5f505a273c
