@@ -15,7 +15,8 @@ import (
 type Sidebar struct {
 	widget.BaseWidget
 
-	lm *backend.LyricsManager
+	lm     *backend.LyricsManager
+	config *backend.AppConfig
 
 	queueList     *widgets.PlayQueueList
 	lyricsViewer  *widgets.LyricsViewer
@@ -24,14 +25,16 @@ type Sidebar struct {
 
 	nowPlaying   mediaprovider.MediaItem
 	nowPlayingID string
-	curLyrics    *mediaprovider.Lyrics
-	curLyricsID  string
-	lastPlayPos  float64
+
+	curLyrics   *mediaprovider.Lyrics
+	curLyricsID string
+	lastPlayPos float64
 }
 
-func NewSidebar(contr *controller.Controller, pm *backend.PlaybackManager, im *backend.ImageManager, lm *backend.LyricsManager) *Sidebar {
+func NewSidebar(contr *controller.Controller, pm *backend.PlaybackManager, im *backend.ImageManager, lm *backend.LyricsManager, config *backend.AppConfig) *Sidebar {
 	s := &Sidebar{
 		lm:        lm,
+		config:    config,
 		queueList: widgets.NewPlayQueueList(im, false),
 	}
 	s.queueList.Reorderable = true
@@ -79,16 +82,22 @@ func (s *Sidebar) SetSelectedIndex(idx int) {
 	s.tabs.SelectIndex(idx)
 }
 
-func (s *Sidebar) SetQueueTracks(items []mediaprovider.MediaItem) {
-	s.queueList.SetItems(items)
+func (s *Sidebar) SetQueueTracks(items []mediaprovider.MediaItem, nowPlayingIdx int) {
+	s.queueList.SetQueue(items, nowPlayingIdx, s.config.HidePlayedQueueTracks)
 }
 
-func (s *Sidebar) SetNowPlaying(item mediaprovider.MediaItem) {
+// OnHidePlayedTracksChanged re-applies the hide-played-tracks setting to the queue.
+func (s *Sidebar) OnHidePlayedTracksChanged() {
+	s.queueList.SetHidePlayed(s.config.HidePlayedQueueTracks)
+}
+
+func (s *Sidebar) SetNowPlaying(item mediaprovider.MediaItem, nowPlayingIdx int) {
 	s.nowPlaying = item
 	id := ""
 	if item != nil {
 		id = item.Metadata().ID
 	}
+	s.queueList.SetNowPlayingIndex(nowPlayingIdx, s.config.HidePlayedQueueTracks)
 	s.queueList.SetNowPlaying(id)
 	s.nowPlayingID = id
 	if s.tabs.SelectedIndex() == 1 /*lyrics*/ {
