@@ -1,6 +1,7 @@
 package dlna
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/base64"
@@ -100,6 +101,7 @@ func NewDLNAPlayer(device *device.MediaRenderer, coverArtPathFn func(coverArtID 
 	retry.RetryMax = 3
 	retry.RetryWaitMin = 100 * time.Millisecond
 	retry.Logger = retryLogger{}
+	retry.HTTPClient.Transport = lengthedBodyTransport{retry.HTTPClient.Transport}
 	cli := retry.StandardClient()
 
 	avt, err := device.AVTransportClient()
@@ -681,6 +683,36 @@ func (d *DLNAPlayer) _updateProxyURL(key, url string) {
 	copy(d.proxyURLs[:], d.proxyURLs[1:])
 	// Insert new element at the most recent position
 	d.proxyURLs[len(d.proxyURLs)-1] = proxyMapEntry{key: key, url: url}
+}
+
+// lengthedBodyTransport buffers request bodies of unknown length so that
+// they are sent with a Content-Length instead of chunked encoding.
+// go-upnpcast builds its SOAP bodies from readers, and Sonos players
+// refuse to answer chunked control requests.
+type lengthedBodyTransport struct {
+	http.RoundTripper
+}
+
+func (t lengthedBodyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// A body of unknown length carries no ContentLength, which for a
+	// non-empty body is what makes net/http fall back to chunking.
+	if req.Body == nil || req.ContentLength > 0 {
+		return t.RoundTripper.RoundTrip(req)
+	}
+
+	body, err := io.ReadAll(req.Body)
+	req.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	req = req.Clone(req.Context())
+	req.ContentLength = int64(len(body))
+	req.Body = io.NopCloser(bytes.NewReader(body))
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(body)), nil
+	}
+	return t.RoundTripper.RoundTrip(req)
 }
 
 // httpClientHandler wraps an http.Client to implement services.RequestHandler
