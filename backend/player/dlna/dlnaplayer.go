@@ -587,9 +587,10 @@ func (d *DLNAPlayer) handleOnTrackChange() {
 	d.metaLock.Unlock()
 
 	if stopping {
-		d.lastStartTime = 0
-		d.stopwatch.Reset()
-		d.InvokeOnStopped()
+		// The renderer has to be told to stop, not just left to run off
+		// the end of the stream: a Sonos player that reaches the end of
+		// one resumes whatever session it was playing beforehand.
+		d.Stop(false)
 	} else {
 		d.metaLock.Lock()
 		if d.failedToSetNext {
