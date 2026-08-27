@@ -66,6 +66,15 @@ func TestAppHTTPClientFactoryConfiguredProxy(t *testing.T) {
 	})
 }
 
+func TestAppHTTPClientFactoryAddsMissingProxyScheme(t *testing.T) {
+	testNewHTTPClient(t, newHTTPClientTestCase{
+		timeout:     3 * time.Second,
+		proxy:       "proxy.example.com:8080",
+		wantProxy:   "http://proxy.example.com:8080",
+		wantSkipSSL: false,
+	})
+}
+
 func TestAppHTTPClientFactoryConfiguredProxyAndSkipSSL(t *testing.T) {
 	testNewHTTPClient(t, newHTTPClientTestCase{
 		timeout:     3 * time.Second,
@@ -97,6 +106,49 @@ func TestAppHTTPClientFactoryUsesEnvironmentProxyWithoutConfiguration(t *testing
 		timeout:     3 * time.Second,
 		wantSkipSSL: false,
 	})
+}
+
+func TestAppHTTPClientFactoryConfiguredProxyHonorsNoProxy(t *testing.T) {
+	t.Setenv("NO_PROXY", "music.example.com")
+	client := newAppHTTPClientFactory("http://proxy.example.com:8080").NewClient(time.Second, false)
+	transport := client.Transport.(*http.Transport)
+	requestURL, err := url.Parse("http://music.example.com/rest/ping")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyURL, err := transport.Proxy(&http.Request{URL: requestURL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proxyURL != nil {
+		t.Fatalf("proxy URL = %q, want direct connection from NO_PROXY", proxyURL)
+	}
+}
+
+func TestAppHTTPClientFactoryConfiguredProxyBypassesLoopback(t *testing.T) {
+	client := newAppHTTPClientFactory("http://proxy.example.com:8080").NewClient(time.Second, false)
+	transport := client.Transport.(*http.Transport)
+	requestURL, err := url.Parse("http://127.0.0.1:4533/rest/ping")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxyURL, err := transport.Proxy(&http.Request{URL: requestURL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proxyURL != nil {
+		t.Fatalf("proxy URL = %q, want direct loopback connection", proxyURL)
+	}
+}
+
+func TestAppHTTPClientFactoryMPVUsesOnlyConfiguredProxy(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "http://environment.example.com:8080")
+	if got := newAppHTTPClientFactory("").proxyForMPV(); got != "" {
+		t.Fatalf("proxyForMPV() = %q without configuration, want empty", got)
+	}
+	if got := newAppHTTPClientFactory("proxy.example.com:8080").proxyForMPV(); got != "http://proxy.example.com:8080" {
+		t.Fatalf("proxyForMPV() = %q, want normalized configured proxy", got)
+	}
 }
 
 type newHTTPClientTestCase struct {

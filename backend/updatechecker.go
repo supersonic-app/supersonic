@@ -59,7 +59,7 @@ func (u *UpdateChecker) LatestReleaseURL() *url.URL {
 
 func (u *UpdateChecker) checkForUpdate() {
 	t := u.CheckLatestVersionTag()
-	if t != "" && t != *u.lastCheckedTag {
+	if t != "" && (u.lastCheckedTag == nil || t != *u.lastCheckedTag) {
 		u.versionTagFound = t
 		if u.OnUpdatedVersionFound != nil {
 			u.OnUpdatedVersionFound()
@@ -68,6 +68,9 @@ func (u *UpdateChecker) checkForUpdate() {
 }
 
 func (u *UpdateChecker) CheckLatestVersionTag() string {
+	if u.httpClient == nil || u.latestReleaseURL == "" {
+		return ""
+	}
 	resp, err := u.httpClient.Head(u.latestReleaseURL)
 	if err != nil {
 		log.Printf("failed to check for newest version: %s", err.Error())

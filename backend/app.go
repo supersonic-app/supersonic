@@ -122,8 +122,6 @@ func StartupApp(appName, displayAppName, appVersion, appVersionTag, latestReleas
 	}
 	a.bgrndCtx, a.cancel = context.WithCancel(context.Background())
 	a.readConfig()
-	a.httpClients = newAppHTTPClientFactory(a.Config.Application.HTTPProxy)
-	outboundHTTPClient := a.httpClients.NewClient(0, false)
 
 	cli, _ := ipc.Connect()
 	if HaveCommandLineOptions() {
@@ -137,13 +135,15 @@ func StartupApp(appName, displayAppName, appVersion, appVersionTag, latestReleas
 		cli.Show()
 		return nil, ErrAnotherInstance
 	}
+	a.httpClients = newAppHTTPClientFactory(a.Config.Application.HTTPProxy)
+	outboundHTTPClient := a.httpClients.NewClient(0, false)
 
 	log.Printf("Starting %s...", appName)
 	log.Printf("Using config dir: %s", confDir)
 	log.Printf("Using cache dir: %s", cacheDir)
 
+	a.UpdateChecker = NewUpdateChecker(appVersionTag, latestReleaseURL, &a.Config.Application.LastCheckedVersion, outboundHTTPClient)
 	if a.Config.Application.EnableAutoUpdateChecker {
-		a.UpdateChecker = NewUpdateChecker(appVersionTag, latestReleaseURL, &a.Config.Application.LastCheckedVersion, outboundHTTPClient)
 		a.UpdateChecker.Start(a.bgrndCtx, 24*time.Hour)
 	}
 
@@ -155,7 +155,7 @@ func StartupApp(appName, displayAppName, appVersion, appVersionTag, latestReleas
 	}
 
 	a.ServerManager = NewServerManager(appName, appVersion, a.Config, !portableMode && a.Config.Application.EnablePasswordStorage, a.httpClients)
-	a.ImageManager = NewImageManager(a.bgrndCtx, a.ServerManager, cacheDir)
+	a.ImageManager = NewImageManager(a.bgrndCtx, a.ServerManager, cacheDir, outboundHTTPClient)
 	if a.Config.Playback.UseWaveformSeekbar {
 		ac, err := NewAudioCache(a.bgrndCtx, a.ServerManager, filepath.Join(cacheDir, audioCacheSubdir), outboundHTTPClient)
 		if err != nil {
@@ -324,7 +324,8 @@ func (a *App) readConfig() {
 		if cfgExists {
 			backupCfgName := fmt.Sprintf("%s.bak", configFile)
 			log.Printf("Config file may be malformed: copying to %s", backupCfgName)
-			_ = util.CopyFile(cfgPath, path.Join(a.configDir, backupCfgName))
+			backupPath := path.Join(a.configDir, backupCfgName)
+			_ = util.CopyFileWithMode(cfgPath, backupPath, 0o600)
 		}
 	}
 	a.Config = cfg
@@ -340,8 +341,11 @@ func (a *App) startConfigWriter(ctx context.Context) {
 			return
 		case <-tick.C:
 			if !reflect.DeepEqual(&a.lastWrittenCfg, a.Config) {
-				a.Config.WriteConfigFile(a.configFilePath())
-				a.lastWrittenCfg = *a.Config
+				if err := a.Config.WriteConfigFile(a.configFilePath()); err != nil {
+					log.Printf("failed to write app config file: %v", err)
+				} else {
+					a.lastWrittenCfg = *a.Config
+				}
 			}
 		}
 	}()
@@ -370,33 +374,17 @@ func (a *App) callOnExit() error {
 	return nil
 }
 
-// resolveHTTPProxy returns the proxy URL for MPV.
-// Priority: config file > https_proxy env > HTTPS_PROXY env > empty string.
-func resolveHTTPProxy(cfg AppConfig) string {
-	if cfg.HTTPProxy != "" {
-		return cfg.HTTPProxy
-	}
-	return resolveHTTPSProxyFromEnvironment()
-}
-
-func resolveHTTPSProxyFromEnvironment() string {
-	if proxy := os.Getenv("https_proxy"); proxy != "" {
-		return proxy
-	}
-	if proxy := os.Getenv("HTTPS_PROXY"); proxy != "" {
-		return proxy
-	}
-	return ""
-}
-
 func (a *App) initMPV() error {
 	p := mpv.NewWithClientName(a.appName)
 	c := a.Config.LocalPlayback
 	c.InMemoryCacheSizeMB = clamp(c.InMemoryCacheSizeMB, 10, 500)
 
-	// The application proxy takes precedence; otherwise preserve MPV's
-	// historical HTTPS environment-proxy behavior.
+	// Pass only an explicitly configured proxy; an empty value leaves
+	// proxy selection to MPV's own environment handling.
 	httpProxy := a.httpClients.proxyForMPV()
+	if err := a.httpClients.configureMPVProxyEnvironment(); err != nil {
+		return fmt.Errorf("configure MPV proxy environment: %w", err)
+	}
 
 	// Log proxy configuration for debugging (redact credentials)
 	if httpProxy != "" {
@@ -728,7 +716,10 @@ func (a *App) LoadSavedPlayQueue() error {
 }
 
 func (a *App) SaveConfigFile() {
-	a.Config.WriteConfigFile(a.configFilePath())
+	if err := a.Config.WriteConfigFile(a.configFilePath()); err != nil {
+		log.Printf("failed to write app config file: %v", err)
+		return
+	}
 	a.lastWrittenCfg = *a.Config
 }
 

@@ -346,9 +346,24 @@ func (c *Config) WriteConfigFile(filepath string) error {
 	if err != nil {
 		return err
 	}
-	os.WriteFile(filepath, b, 0o644)
 
-	return nil
+	// Proxy credentials may be stored in the application configuration. Tighten
+	// the file on POSIX systems; Windows access is governed by its ACLs.
+	if err := os.Chmod(filepath, 0o600); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	f, err := os.OpenFile(filepath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(b); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Chmod(filepath, 0o600)
 }
 
 func (c *Config) migrateDeprecatedSettings() {
