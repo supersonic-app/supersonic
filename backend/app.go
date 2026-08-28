@@ -136,6 +136,9 @@ func StartupApp(appName, displayAppName, appVersion, appVersionTag, latestReleas
 		return nil, ErrAnotherInstance
 	}
 	a.httpClients = newAppHTTPClientFactory(a.Config.Application.HTTPProxy)
+	if a.httpClients.configuredProxyErr != nil {
+		return nil, fmt.Errorf("invalid configured HTTP proxy: %w", a.httpClients.configuredProxyErr)
+	}
 	outboundHTTPClient := a.httpClients.NewClient(0, false)
 
 	log.Printf("Starting %s...", appName)

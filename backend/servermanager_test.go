@@ -94,11 +94,30 @@ func TestAppHTTPClientFactorySkipSSLOnly(t *testing.T) {
 }
 
 func TestAppHTTPClientFactoryInvalidProxy(t *testing.T) {
-	testNewHTTPClient(t, newHTTPClientTestCase{
-		timeout:     3 * time.Second,
-		proxy:       "http://%zz",
-		wantSkipSSL: false,
-	})
+	factory := newAppHTTPClientFactory("https://proxy.example.com:8080")
+	if factory.configuredProxyErr == nil {
+		t.Fatal("invalid HTTPS proxy configuration was not recorded")
+	}
+	client := factory.NewClient(3*time.Second, false)
+	transport := client.Transport.(*http.Transport)
+	if transport.Proxy != nil {
+		t.Fatal("invalid configured proxy must disable environment proxy fallback")
+	}
+}
+
+func TestParseHTTPProxyURLRejectsMalformedPort(t *testing.T) {
+	for _, rawProxy := range []string{
+		"http://proxy.example.com:0",
+		"http://proxy.example.com:65536",
+		"http://proxy.example.com:not-a-port",
+		"http://proxy.example.com:",
+	} {
+		t.Run(rawProxy, func(t *testing.T) {
+			if _, err := parseHTTPProxyURL(rawProxy); err == nil {
+				t.Fatalf("parseHTTPProxyURL(%q) accepted malformed port", rawProxy)
+			}
+		})
+	}
 }
 
 func TestAppHTTPClientFactoryUsesEnvironmentProxyWithoutConfiguration(t *testing.T) {

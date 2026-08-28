@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,25 +15,26 @@ import (
 )
 
 // appHTTPClientFactory creates outbound HTTP clients with the application
-// proxy setting applied. Configured proxies use httpproxy semantics so
-// NO_PROXY and loopback exemptions remain in effect; without an application
-// proxy, the default transport's environment behavior is preserved.
+// HTTP proxy setting applied. A configured HTTP endpoint is used for both
+// HTTP and HTTPS requests; without one, the transport keeps environment
+// proxy semantics intact.
 type appHTTPClientFactory struct {
 	configuredProxy     *url.URL
 	configuredProxyFunc func(*url.URL) (*url.URL, error)
 	hasConfiguredProxy  bool
 	configuredProxyErr  error
-	mpvProxyErr         error
 }
 
 func newAppHTTPClientFactory(rawProxy string) *appHTTPClientFactory {
 	factory := &appHTTPClientFactory{}
+	rawProxy = strings.TrimSpace(rawProxy)
 	if rawProxy == "" {
 		return factory
 	}
+
 	proxy, err := parseHTTPProxyURL(rawProxy)
 	if err != nil {
-		log.Printf("Warning: invalid proxy configuration, ignoring configured proxy")
+		log.Printf("Warning: invalid configured HTTP proxy; refusing to start with proxy configuration")
 		factory.hasConfiguredProxy = true
 		factory.configuredProxyErr = err
 		return factory
@@ -47,9 +49,6 @@ func newAppHTTPClientFactory(rawProxy string) *appHTTPClientFactory {
 	}
 	factory.configuredProxy = proxy
 	factory.configuredProxyFunc = proxyConfig.ProxyFunc()
-	if proxy.Scheme == "https" {
-		factory.mpvProxyErr = fmt.Errorf("configured proxy uses HTTPS, which MPV does not support")
-	}
 	log.Printf("Setting application HTTP proxy: %s", redactProxyURL(proxy.String()))
 	return factory
 }
@@ -60,8 +59,7 @@ func parseHTTPProxyURL(rawProxy string) (*url.URL, error) {
 		return nil, fmt.Errorf("proxy URL is empty")
 	}
 	if !strings.Contains(rawProxy, "://") {
-		// Match httpproxy's host[:port] form by assuming http:// when the
-		// configured value omits a scheme.
+		// Treat a host[:port] value as an HTTP proxy, matching httpproxy.
 		rawProxy = "http://" + rawProxy
 	}
 	proxy, err := url.Parse(rawProxy)
@@ -69,10 +67,50 @@ func parseHTTPProxyURL(rawProxy string) (*url.URL, error) {
 		return nil, fmt.Errorf("invalid proxy URL")
 	}
 	proxy.Scheme = strings.ToLower(proxy.Scheme)
-	if proxy.Host == "" || proxy.Hostname() == "" || (proxy.Scheme != "http" && proxy.Scheme != "https") {
-		return nil, fmt.Errorf("proxy URL must use http or https and include a host")
+	if proxy.Host == "" || proxy.Hostname() == "" || proxy.Scheme != "http" {
+		return nil, fmt.Errorf("proxy URL must use the http scheme and include a host")
+	}
+	if err := validateHTTPProxyPort(proxy.Host); err != nil {
+		return nil, err
 	}
 	return proxy, nil
+}
+
+func validateHTTPProxyPort(host string) error {
+	var rawPort string
+	switch {
+	case strings.HasPrefix(host, "["):
+		closeBracket := strings.LastIndexByte(host, ']')
+		if closeBracket < 0 {
+			return fmt.Errorf("proxy URL has malformed host")
+		}
+		if len(host) == closeBracket+1 {
+			return nil
+		}
+		if host[closeBracket+1] != ':' {
+			return fmt.Errorf("proxy URL has malformed port")
+		}
+		rawPort = host[closeBracket+2:]
+	case strings.Count(host, ":") == 0:
+		return nil
+	case strings.Count(host, ":") == 1:
+		rawPort = host[strings.LastIndexByte(host, ':')+1:]
+	default:
+		return fmt.Errorf("proxy URL has malformed host or port")
+	}
+	if rawPort == "" {
+		return fmt.Errorf("proxy URL has an empty port")
+	}
+	for _, char := range rawPort {
+		if char < '0' || char > '9' {
+			return fmt.Errorf("proxy URL port must be numeric")
+		}
+	}
+	port, err := strconv.Atoi(rawPort)
+	if err != nil || port < 1 || port > 65535 {
+		return fmt.Errorf("proxy URL port must be between 1 and 65535")
+	}
+	return nil
 }
 
 func (f *appHTTPClientFactory) NewClient(timeout time.Duration, skipSSLVerify bool) *http.Client {
@@ -109,23 +147,13 @@ func (f *appHTTPClientFactory) configureHTTPClient(client *http.Client, skipSSLV
 	client.Transport = transport
 }
 
-// proxyForMPV returns a configured HTTP proxy URL when MPV supports it.
-// Go clients may support HTTPS proxy endpoints, but MPV's option does not.
+// proxyForMPV returns the configured HTTP proxy URL. An empty return value
+// leaves proxy selection to MPV's own environment handling.
 func (f *appHTTPClientFactory) proxyForMPV() string {
-	if f.configuredProxy == nil || f.configuredProxy.Scheme != "http" {
+	if f.configuredProxy == nil {
 		return ""
 	}
 	return f.configuredProxy.String()
-}
-
-// validateMPVProxy rejects configured proxy forms that MPV would otherwise
-// silently ignore. MPV accepts HTTP proxy URLs, while the Go clients also
-// support HTTPS proxy URLs.
-func (f *appHTTPClientFactory) validateMPVProxy() error {
-	if f.configuredProxyErr != nil {
-		return fmt.Errorf("invalid configured proxy")
-	}
-	return f.mpvProxyErr
 }
 
 // configureMPVProxyEnvironment keeps MPV/FFmpeg's no_proxy environment in

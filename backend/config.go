@@ -61,7 +61,7 @@ type AppConfig struct {
 	ShowSidebar                 bool
 	SidebarWidthFraction        float64
 	SidebarTab                  string
-	HTTPProxy                   string // HTTP/HTTPS proxy URL with optional auth (http://user:pass@proxy:8080)
+	HTTPProxy                   string // HTTP proxy URL with optional auth (http://user:pass@proxy:8080); host[:port] assumes http://
 
 	PreventScreensaverOnNowPlayingPage bool
 
