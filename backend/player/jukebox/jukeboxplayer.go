@@ -2,6 +2,7 @@ package jukebox
 
 import (
 	"log"
+	"sync"
 	"time"
 
 	"github.com/supersonic-app/supersonic/backend/mediaprovider"
@@ -29,7 +30,22 @@ const retryDelay = 2 * time.Second
 type JukeboxPlayer struct {
 	player.BasePlayerCallbackImpl
 
-	provider  mediaprovider.JukeboxProvider
+	provider mediaprovider.JukeboxProvider
+
+	// mu guards every field below, and is held for the full duration of any
+	// operation that issues Subsonic JukeboxControl requests (set/add/
+	// remove/start/stop/seek/status). JukeboxPlayer is driven from several
+	// independent goroutines - the playback command queue (PlayTrack, Stop,
+	// Continue, Pause, SeekSeconds), playbackEngine's own poll-timer
+	// (SetNextTrack), trackChangeTimer's dispatcher (handleOnTrackChange, via
+	// time.AfterFunc - see common.TrackChangeTimer), and scheduleSync's
+	// spawned goroutines. Without serializing them, their JukeboxControl
+	// requests can reach the server out of the order intended, letting local
+	// bookkeeping (curTrack/hasNextTrack) diverge from the server's actual
+	// queue - observed as a spurious "remove" failing server-side and,
+	// downstream, the same track playing again instead of the next one.
+	mu sync.Mutex
+
 	destroyed bool
 
 	state   int // stopped, playing, paused
@@ -66,6 +82,9 @@ func NewJukeboxPlayer(provider mediaprovider.JukeboxProvider) (*JukeboxPlayer, e
 }
 
 func (j *JukeboxPlayer) SetVolume(vol int) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
 	if j.destroyed {
 		return nil
 	}
@@ -85,6 +104,9 @@ func (j *JukeboxPlayer) SetVolume(vol int) error {
 // the server, that would always report 0 and yank the volume slider down
 // regardless of the jukebox's actual (possibly nonzero) volume.
 func (j *JukeboxPlayer) GetVolume() int {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
 	if j.destroyed {
 		return j.volume
 	}
@@ -95,16 +117,21 @@ func (j *JukeboxPlayer) GetVolume() int {
 }
 
 func (j *JukeboxPlayer) Continue() error {
+	j.mu.Lock()
 	if j.destroyed || j.state == playing {
+		j.mu.Unlock()
 		return nil
 	}
 	if err := j.provider.JukeboxStart(); err != nil {
+		j.mu.Unlock()
 		return err
 	}
 
 	j.state = playing
 	j.stopwatch.Start()
 	j.trackChangeTimer.Reset(j.remainingTrackTime())
+	j.mu.Unlock()
+
 	j.InvokeOnPlaying()
 
 	go j.scheduleSync(syncSettleDelay)
@@ -112,42 +139,56 @@ func (j *JukeboxPlayer) Continue() error {
 }
 
 func (j *JukeboxPlayer) Pause() error {
+	j.mu.Lock()
 	if j.destroyed || j.state != playing {
+		j.mu.Unlock()
 		return nil
 	}
 	if err := j.provider.JukeboxStop(); err != nil {
+		j.mu.Unlock()
 		return err
 	}
 	j.trackChangeTimer.Reset(0)
 	j.stopwatch.Stop()
 	j.state = paused
+	j.mu.Unlock()
+
 	j.InvokeOnPaused()
 	return nil
 }
 
 func (j *JukeboxPlayer) Stop(_ bool) error {
+	j.mu.Lock()
 	if j.destroyed || j.state == stopped {
+		j.mu.Unlock()
 		return nil
 	}
 	if err := j.provider.JukeboxStop(); err != nil {
+		j.mu.Unlock()
 		return err
 	}
 	j.trackChangeTimer.Reset(0)
 	j.state = stopped
 	j.lastStartTime = 0
 	j.stopwatch.Reset()
+	j.mu.Unlock()
+
 	j.InvokeOnStopped()
 	return nil
 }
 
 func (j *JukeboxPlayer) PlayTrack(track *mediaprovider.Track, startTime float64) error {
+	j.mu.Lock()
 	if j.destroyed {
+		j.mu.Unlock()
 		return nil
 	}
 	if err := j.provider.JukeboxSet(track.ID); err != nil {
+		j.mu.Unlock()
 		return err
 	}
 	if err := j.provider.JukeboxStart(); err != nil {
+		j.mu.Unlock()
 		return err
 	}
 
@@ -157,6 +198,7 @@ func (j *JukeboxPlayer) PlayTrack(track *mediaprovider.Track, startTime float64)
 
 	if startTime > 0 {
 		if err := j.provider.JukeboxSeek(j.curTrack, int(startTime)); err != nil {
+			j.mu.Unlock()
 			return err
 		}
 	}
@@ -165,6 +207,8 @@ func (j *JukeboxPlayer) PlayTrack(track *mediaprovider.Track, startTime float64)
 	j.stopwatch.Start()
 	j.state = playing
 	j.trackChangeTimer.Reset(j.remainingTrackTime())
+	j.mu.Unlock()
+
 	j.InvokeOnPlaying()
 	// PlayTrack is called both for user-initiated track changes (e.g.
 	// skip/select) and when the engine transfers an already-playing track
@@ -183,8 +227,10 @@ func (j *JukeboxPlayer) PlayTrack(track *mediaprovider.Track, startTime float64)
 // SetNextTrack queues track to play after the current one, replacing any
 // previously queued next track. A nil track clears the queued next track,
 // without affecting the currently playing one.
-func (j *JukeboxPlayer) SetNextTrack(track *mediaprovider.Track) error {
+func (j *JukeboxPlayer) SetNextTrack(track *mediaprovider.Track) (err error) {
+	j.mu.Lock()
 	if j.destroyed {
+		j.mu.Unlock()
 		return nil
 	}
 
@@ -199,12 +245,24 @@ func (j *JukeboxPlayer) SetNextTrack(track *mediaprovider.Track) error {
 	// genuinely queued-but-unplayed one - which, depending on how the
 	// server's jukebox reacts to removing its active track, can disrupt
 	// playback (observed: it fell back to replaying the previous track).
-	if stat, err := j.provider.JukeboxGetStatus(); err == nil && stat.Playing {
-		j.reconcileWithStatus(stat)
+	trackChanged := false
+	if stat, statErr := j.provider.JukeboxGetStatus(); statErr == nil && stat.Playing {
+		trackChanged = j.reconcileWithStatus(stat)
 	}
+	// Release the lock and notify the engine of a server-observed track
+	// change (if any) only once we're done touching state below - and only
+	// after unlocking, since InvokeOnTrackChange runs playbackEngine
+	// callbacks synchronously, which can themselves call back into this
+	// player (e.g. another SetNextTrack) and would deadlock on j.mu.
+	defer func() {
+		j.mu.Unlock()
+		if trackChanged {
+			j.InvokeOnTrackChange()
+		}
+	}()
 
 	if j.hasNextTrack {
-		if err := j.provider.JukeboxRemove(j.curTrack + 1); err != nil {
+		if err = j.provider.JukeboxRemove(j.curTrack + 1); err != nil {
 			return err
 		}
 		j.hasNextTrack = false
@@ -215,7 +273,7 @@ func (j *JukeboxPlayer) SetNextTrack(track *mediaprovider.Track) error {
 	}
 
 	// append the new track to the queue
-	if err := j.provider.JukeboxAdd(track.ID); err != nil {
+	if err = j.provider.JukeboxAdd(track.ID); err != nil {
 		return err
 	}
 	j.hasNextTrack = true
@@ -224,7 +282,9 @@ func (j *JukeboxPlayer) SetNextTrack(track *mediaprovider.Track) error {
 }
 
 func (j *JukeboxPlayer) SeekSeconds(secs float64) error {
+	j.mu.Lock()
 	if j.destroyed {
+		j.mu.Unlock()
 		return nil
 	}
 
@@ -232,6 +292,7 @@ func (j *JukeboxPlayer) SeekSeconds(secs float64) error {
 	err := j.provider.JukeboxSeek(j.curTrack, int(secs))
 	j.seeking = false
 	if err != nil {
+		j.mu.Unlock()
 		return err
 	}
 
@@ -241,6 +302,8 @@ func (j *JukeboxPlayer) SeekSeconds(secs float64) error {
 		j.stopwatch.Start()
 	}
 	j.trackChangeTimer.Reset(j.remainingTrackTime())
+	j.mu.Unlock()
+
 	j.InvokeOnSeek()
 
 	go j.scheduleSync(syncSettleDelay)
@@ -248,10 +311,15 @@ func (j *JukeboxPlayer) SeekSeconds(secs float64) error {
 }
 
 func (j *JukeboxPlayer) IsSeeking() bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
 	return j.seeking
 }
 
 func (j *JukeboxPlayer) GetStatus() player.Status {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
 	state := player.Stopped
 	switch j.state {
 	case playing:
@@ -267,6 +335,7 @@ func (j *JukeboxPlayer) GetStatus() player.Status {
 	}
 }
 
+// curPlayPos must be called with j.mu held.
 func (j *JukeboxPlayer) curPlayPos() time.Duration {
 	return time.Duration(j.lastStartTime)*time.Second + j.stopwatch.Elapsed()
 }
@@ -274,22 +343,29 @@ func (j *JukeboxPlayer) curPlayPos() time.Duration {
 // remainingTrackTime is how long until the current track is expected to end,
 // based on our local bookkeeping of its duration and current position
 // (including time elapsed since the last seek/time sync, not just the
-// position as of then).
+// position as of then). Must be called with j.mu held.
 func (j *JukeboxPlayer) remainingTrackTime() time.Duration {
 	return time.Duration(j.curTrackDuration*float64(time.Second)) - j.curPlayPos()
 }
 
 func (j *JukeboxPlayer) Destroy() {
+	j.mu.Lock()
 	j.destroyed = true
+	j.mu.Unlock()
+
 	j.trackChangeTimer.Reset(0)
 }
 
 // handleOnTrackChange fires when the local trackChangeTimer estimates the
 // current track has finished. Since the server-side jukebox doesn't push
 // playback events, this always reconciles against the server's authoritative
-// JukeboxGetStatus before updating any state.
+// JukeboxGetStatus before updating any state. Runs on trackChangeTimer's own
+// dispatcher goroutine (see common.TrackChangeTimer), independent of
+// whichever goroutine last armed it.
 func (j *JukeboxPlayer) handleOnTrackChange() {
+	j.mu.Lock()
 	if j.destroyed {
+		j.mu.Unlock()
 		return
 	}
 
@@ -299,6 +375,7 @@ func (j *JukeboxPlayer) handleOnTrackChange() {
 		if !j.destroyed {
 			j.trackChangeTimer.Reset(retryDelay)
 		}
+		j.mu.Unlock()
 		return
 	}
 
@@ -317,6 +394,7 @@ func (j *JukeboxPlayer) handleOnTrackChange() {
 			// it - silently killing playback of every track after this
 			// one. Check again shortly instead.
 			j.trackChangeTimer.Reset(retryDelay)
+			j.mu.Unlock()
 			return
 		}
 		// no next track was queued, so the server has genuinely run out of
@@ -324,29 +402,37 @@ func (j *JukeboxPlayer) handleOnTrackChange() {
 		j.state = stopped
 		j.lastStartTime = 0
 		j.stopwatch.Reset()
+		j.mu.Unlock()
 		j.InvokeOnStopped()
 		return
 	}
 
-	j.reconcileWithStatus(stat)
+	trackChanged := j.reconcileWithStatus(stat)
+	j.mu.Unlock()
+	if trackChanged {
+		j.InvokeOnTrackChange()
+	} else {
+		j.InvokeOnSeek()
+	}
 }
 
 // reconcileWithStatus updates local track-position state to match an
 // authoritative JukeboxGetStatus response. If the server has moved on to a
 // different track than we last knew, this performs the same bookkeeping as
-// a natural track change and notifies the engine via InvokeOnTrackChange -
-// so regardless of which poll (the track-change timer firing, scheduleSync,
-// or SetNextTrack's own pre-check) is the one to first observe the server
-// having advanced, the engine always finds out about it the same way.
-// Otherwise, just resyncs the current track's position (see
-// resyncFromStatus).
-func (j *JukeboxPlayer) reconcileWithStatus(stat *mediaprovider.JukeboxStatus) {
+// a natural track change and returns true - so regardless of which poll (the
+// track-change timer firing, scheduleSync, or SetNextTrack's own pre-check)
+// is the one to first observe the server having advanced, the engine always
+// finds out about it the same way (callers must invoke InvokeOnTrackChange
+// once j.mu is released). Otherwise, just resyncs the current track's
+// position (see resyncFromStatusLocked) and returns false (callers should
+// invoke InvokeOnSeek instead). Must be called with j.mu held.
+func (j *JukeboxPlayer) reconcileWithStatus(stat *mediaprovider.JukeboxStatus) bool {
 	if stat.CurrentTrack == j.curTrack {
 		// our local timer fired early due to clock drift - the server
 		// hasn't advanced tracks yet. Resync and re-arm for the
 		// remaining time rather than treating this as a track change.
-		j.resyncFromStatus(stat)
-		return
+		j.resyncFromStatusLocked(stat)
+		return false
 	}
 
 	// the server has advanced to the next track in the queue
@@ -359,40 +445,51 @@ func (j *JukeboxPlayer) reconcileWithStatus(stat *mediaprovider.JukeboxStatus) {
 	j.stopwatch.Reset()
 	j.stopwatch.Start()
 	j.trackChangeTimer.Reset(j.remainingTrackTime())
-	j.InvokeOnTrackChange()
+	return true
 }
 
 // scheduleSync waits the given delay and then reconciles local playback
 // position/state against the server's authoritative JukeboxGetStatus. Used
 // after commands (start/seek) that change server-side playback, to correct
-// for network round-trip latency and any drift in the local estimate.
+// for network round-trip latency and any drift in the local estimate. Runs
+// on its own goroutine (see the `go j.scheduleSync(...)` call sites),
+// independent of whichever goroutine issued the command that spawned it.
 func (j *JukeboxPlayer) scheduleSync(delay time.Duration) {
 	time.Sleep(delay)
+
+	j.mu.Lock()
 	if j.destroyed {
+		j.mu.Unlock()
 		return
 	}
 	stat, err := j.provider.JukeboxGetStatus()
 	if err != nil {
+		j.mu.Unlock()
 		log.Printf("jukebox: failed to sync status: %v", err)
 		return
 	}
 	if j.destroyed || stat.CurrentTrack != j.curTrack {
 		// player was destroyed, or the track has already changed again
 		// (e.g. handleOnTrackChange already reconciled it) - stale reply
+		j.mu.Unlock()
 		return
 	}
-	j.resyncFromStatus(stat)
+	j.resyncFromStatusLocked(stat)
+	j.mu.Unlock()
+
+	j.InvokeOnSeek()
 }
 
-// resyncFromStatus reconciles local position tracking against an
+// resyncFromStatusLocked reconciles local position tracking against an
 // authoritative status response for the currently known track (does not
-// handle the track having changed - see handleOnTrackChange for that).
-func (j *JukeboxPlayer) resyncFromStatus(stat *mediaprovider.JukeboxStatus) {
+// handle the track having changed - see reconcileWithStatus for that). Must
+// be called with j.mu held; callers should invoke InvokeOnSeek once it's
+// released.
+func (j *JukeboxPlayer) resyncFromStatusLocked(stat *mediaprovider.JukeboxStatus) {
 	j.lastStartTime = int(stat.PositionSeconds)
 	j.stopwatch.Reset()
 	if j.state == playing {
 		j.stopwatch.Start()
 	}
 	j.trackChangeTimer.Reset(j.remainingTrackTime())
-	j.InvokeOnSeek()
 }
