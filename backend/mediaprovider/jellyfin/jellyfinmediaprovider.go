@@ -41,8 +41,7 @@ func (j *JellyfinServer) MediaProvider() mediaprovider.MediaProvider {
 var _ mediaprovider.MediaProvider = (*JellyfinMediaProvider)(nil)
 
 type JellyfinMediaProvider struct {
-	client          *jellyfin.Client
-	prefetchCoverCB func(coverArtID string)
+	client *jellyfin.Client
 
 	currentLibraryID string
 
@@ -55,10 +54,6 @@ func newJellyfinMediaProvider(cli *jellyfin.Client) mediaprovider.MediaProvider 
 		client:       cli,
 		genresCached: make([]*mediaprovider.Genre, 0),
 	}
-}
-
-func (j *JellyfinMediaProvider) SetPrefetchCoverCallback(cb func(coverArtID string)) {
-	j.prefetchCoverCB = cb
 }
 
 func (j *JellyfinMediaProvider) GetLibraries() ([]mediaprovider.Library, error) {

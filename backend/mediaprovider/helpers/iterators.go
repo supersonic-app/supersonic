@@ -9,7 +9,6 @@ import (
 
 type baseIter[M, F any] struct {
 	filter        mediaprovider.MediaFilter[M, F]
-	prefetchCB    func(*M)
 	serverPos     int
 	fetcher       func(offset, limit int) ([]*M, error)
 	prefetched    []*M
@@ -19,31 +18,28 @@ type baseIter[M, F any] struct {
 
 type AlbumFetchFn func(offset, limit int) ([]*mediaprovider.Album, error)
 
-func NewAlbumIterator(fetchFn AlbumFetchFn, filter mediaprovider.AlbumFilter, cb func(string)) mediaprovider.AlbumIterator {
+func NewAlbumIterator(fetchFn AlbumFetchFn, filter mediaprovider.AlbumFilter) mediaprovider.AlbumIterator {
 	return &baseIter[mediaprovider.Album, mediaprovider.AlbumFilterOptions]{
-		prefetchCB: func(a *mediaprovider.Album) { cb(a.CoverArtID) },
-		filter:     filter,
-		fetcher:    fetchFn,
+		filter:  filter,
+		fetcher: fetchFn,
 	}
 }
 
 type ArtistFetchFn func(offset, limit int) ([]*mediaprovider.Artist, error)
 
-func NewArtistIterator(fetchFn ArtistFetchFn, filter mediaprovider.ArtistFilter, cb func(string)) mediaprovider.ArtistIterator {
+func NewArtistIterator(fetchFn ArtistFetchFn, filter mediaprovider.ArtistFilter) mediaprovider.ArtistIterator {
 	return &baseIter[mediaprovider.Artist, mediaprovider.ArtistFilterOptions]{
-		prefetchCB: func(a *mediaprovider.Artist) { cb(a.CoverArtID) },
-		fetcher:    fetchFn,
-		filter:     filter,
+		filter:  filter,
+		fetcher: fetchFn,
 	}
 }
 
 type TrackFetchFn func(offset, limit int) ([]*mediaprovider.Track, error)
 
-func NewTrackIterator(fetchFn TrackFetchFn, cb func(string)) mediaprovider.TrackIterator {
+func NewTrackIterator(fetchFn TrackFetchFn) mediaprovider.TrackIterator {
 	return &baseIter[mediaprovider.Track, nilFilterOptions]{
-		prefetchCB: func(a *mediaprovider.Track) { cb(a.CoverArtID) },
-		filter:     nilFilter[mediaprovider.Track]{},
-		fetcher:    fetchFn,
+		filter:  nilFilter[mediaprovider.Track]{},
+		fetcher: fetchFn,
 	}
 }
 
@@ -77,17 +73,11 @@ func (r *baseIter[M, F]) Next() *M {
 		}
 	}
 	r.prefetchedPos = 1
-	if r.prefetchCB != nil {
-		for _, item := range r.prefetched {
-			go r.prefetchCB(item)
-		}
-	}
 	return r.prefetched[0]
 }
 
 type randomAlbumIter struct {
 	filter        mediaprovider.AlbumFilter
-	prefetchCB    func(coverArtID string)
 	albumIDSet    map[string]bool
 	prefetched    []*mediaprovider.Album
 	prefetchedPos int
@@ -104,10 +94,9 @@ type randomAlbumIter struct {
 	done                 bool
 }
 
-func NewRandomAlbumIter(deterministicFetcher, randomFetcher AlbumFetchFn, filter mediaprovider.AlbumFilter, prefetchCoverCB func(string)) *randomAlbumIter {
+func NewRandomAlbumIter(deterministicFetcher, randomFetcher AlbumFetchFn, filter mediaprovider.AlbumFilter) *randomAlbumIter {
 	return &randomAlbumIter{
 		filter:               filter,
-		prefetchCB:           prefetchCoverCB,
 		deterministicFetcher: deterministicFetcher,
 		randomFetcher:        randomFetcher,
 		albumIDSet:           make(map[string]bool),
@@ -138,9 +127,6 @@ func (r *randomAlbumIter) Next() *mediaprovider.Album {
 			for _, album := range albums {
 				if _, ok := r.albumIDSet[album.ID]; !ok && r.filter.Matches(album) {
 					r.prefetched = append(r.prefetched, album)
-					if r.prefetchCB != nil {
-						go r.prefetchCB(album.CoverArtID)
-					}
 					r.albumIDSet[album.ID] = true
 				}
 			}
@@ -162,9 +148,6 @@ func (r *randomAlbumIter) Next() *mediaprovider.Album {
 					r.albumIDSet[album.ID] = true
 					if r.filter.Matches(album) {
 						r.prefetched = append(r.prefetched, album)
-						if r.prefetchCB != nil {
-							go r.prefetchCB(album.CoverArtID)
-						}
 					}
 				}
 			}
