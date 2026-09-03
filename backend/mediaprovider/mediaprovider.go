@@ -251,6 +251,9 @@ type MediaProvider interface {
 	GetFavorites() (Favorites, error)
 
 	GetStreamURL(trackID string, transcodeSettings *TranscodeSettings, forceRaw bool) (string, error)
+	// GetHLSStreamURL returns the HLS M3U8 manifest URL for a track (OpenSubsonic extension)
+	// Returns empty string if HLS is not supported by the server
+	GetHLSStreamURL(trackID string) (string, error)
 
 	GetTopTracks(artist Artist, count int) ([]*Track, error)
 

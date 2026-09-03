@@ -342,6 +342,12 @@ func (s *SettingsDialog) createPlaybackTab(isLocalPlayer, isReplayGainPlayer boo
 		}
 	})
 	disableTranscode.Checked = s.config.Transcoding.ForceRawFile
+
+	useHLS := widget.NewCheck(lang.L("Use HLS streaming (when available)"), func(b bool) {
+		s.config.Transcoding.UseHLS = b
+	})
+	useHLS.Checked = s.config.Transcoding.UseHLS
+
 	transcode = widget.NewCheck(lang.L("Transcode to"), func(b bool) {
 		s.config.Transcoding.RequestTranscode = b
 		if b {
@@ -462,6 +468,7 @@ func (s *SettingsDialog) createPlaybackTab(isLocalPlayer, isReplayGainPlayer boo
 		pauseFade,
 		s.newSectionSeparator(),
 		disableTranscode,
+		useHLS,
 		container.NewHBox(transcode, transcodeCodec, transcodeBitRate),
 		s.newSectionSeparator(),
 		widget.NewLabelWithStyle("ReplayGain", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),

@@ -371,6 +371,12 @@ func (j *JellyfinMediaProvider) GetStreamURL(trackID string, transcode *mediapro
 	return j.client.GetStreamURL(trackID, jfTranscode)
 }
 
+// GetHLSStreamURL returns the HLS M3U8 manifest URL for a track (OpenSubsonic extension)
+// Jellyfin doesn't support this endpoint natively, so we return empty string
+func (j *JellyfinMediaProvider) GetHLSStreamURL(trackID string) (string, error) {
+	return "", nil
+}
+
 func (j *JellyfinMediaProvider) DownloadTrack(trackID string) (io.Reader, error) {
 	url, err := j.client.GetStreamURL(trackID, nil)
 	if err != nil {

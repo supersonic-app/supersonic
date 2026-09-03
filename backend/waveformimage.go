@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +24,8 @@ import (
 
 type WaveformImageGenerator struct {
 	audioCache *AudioCache
+	// URLProvider allows fetching stream URLs for tracks not in cache (e.g., HLS)
+	URLProvider func(trackID string) string
 }
 
 // Buffer pool for waveform analysis to reduce allocations
@@ -106,6 +109,11 @@ func NewWaveformImageGenerator(cache *AudioCache) *WaveformImageGenerator {
 	return &WaveformImageGenerator{audioCache: cache}
 }
 
+// NewWaveformImageGeneratorWithURLProvider creates a generator with a URL callback for HLS support
+func NewWaveformImageGeneratorWithURLProvider(cache *AudioCache, urlProvider func(trackID string) string) *WaveformImageGenerator {
+	return &WaveformImageGenerator{audioCache: cache, URLProvider: urlProvider}
+}
+
 func (w *WaveformImageGenerator) StartWaveformGeneration(item *mediaprovider.Track) *WaveformImageJob {
 	ctx, cancel := context.WithCancel(w.audioCache.rootCtx)
 	job := &WaveformImageJob{
@@ -122,7 +130,14 @@ func (w *WaveformImageGenerator) StartWaveformGeneration(item *mediaprovider.Tra
 	// 4. Begin generating the image from the analysis data
 	go func() {
 		path := w.audioCache.ObtainReferenceToFile(job.ItemID)
-		// wait for file to begin downloading if not already
+		// For HLS or uncached tracks, try to get URL directly from provider
+		if path == "" && w.URLProvider != nil {
+			url := w.URLProvider(job.ItemID)
+			if url != "" {
+				path = url
+			}
+		}
+		// wait for file to begin downloading if not already (non-HLS tracks)
 		for path == "" {
 			time.Sleep(50 * time.Millisecond)
 			if e := ctx.Err(); e != nil {
@@ -131,19 +146,27 @@ func (w *WaveformImageGenerator) StartWaveformGeneration(item *mediaprovider.Tra
 			}
 			path = w.audioCache.ObtainReferenceToFile(job.ItemID)
 		}
-		// and wait for content to begin being written
-		for {
-			if s, err := os.Stat(path); err == nil && s.Size() > 0 {
-				break
-			}
-			time.Sleep(50 * time.Millisecond)
-			if e := ctx.Err(); e != nil {
-				job.setError(e)
-				return
+		// Check if path is a URL (HLS) or local file
+		isURL := IsHLSURL(path) || (len(path) > 7 && strings.HasPrefix(path, "http"))
+
+		dir := filepath.Dir(path)
+		if isURL {
+			// For URLs, use cache directory for temp WAV file
+			dir = w.audioCache.baseCacheDir
+		} else {
+			// and wait for content to begin being written (local files only)
+			for {
+				if s, err := os.Stat(path); err == nil && s.Size() > 0 {
+					break
+				}
+				time.Sleep(50 * time.Millisecond)
+				if e := ctx.Err(); e != nil {
+					job.setError(e)
+					return
+				}
 			}
 		}
 
-		dir := filepath.Dir(path)
 		var transcodeFile string
 		for i := 0; true; i++ {
 			if i > 0 {
@@ -160,10 +183,9 @@ func (w *WaveformImageGenerator) StartWaveformGeneration(item *mediaprovider.Tra
 			return w.audioCache.IsFullyDownloaded(job.ItemID)
 		}
 
-		// If file isn't fully downloaded from server,
-		// stream it to MPV via fifo so it doesn't possibly
-		// terminate the conversion to WAV early encountering EOF
-		if !fileDone() {
+		// For local files that aren't fully downloaded, stream via fifo
+		// For URLs (HLS), use directly - MPV handles them natively
+		if !isURL && !fileDone() {
 			srv, err := util.NewFileStreamerServer(path, fileDone)
 			if err != nil {
 				job.setError(err)
@@ -179,7 +201,7 @@ func (w *WaveformImageGenerator) StartWaveformGeneration(item *mediaprovider.Tra
 		// Start converting the file to WAV for analysis
 		var wavConvertDone bool
 		go func() {
-			err := w.convertToWav(ctx, job.ItemID, path, transcodeFile)
+			err := w.convertToWav(ctx, job.ItemID, path, transcodeFile, isURL)
 			wavConvertDone = true
 			if err != nil {
 				job.setError(err)
@@ -435,7 +457,7 @@ func float64ToByte(val float64) byte {
 	return byte(val * 255)
 }
 
-func (w *WaveformImageGenerator) convertToWav(ctx context.Context, id, inPath, outPath string) error {
+func (w *WaveformImageGenerator) convertToWav(ctx context.Context, id, inPath, outPath string, isURL bool) error {
 	m := mpv.Create()
 	m.SetOptionString("video", "no")
 	m.SetOptionString("audio-display", "no")
@@ -449,6 +471,16 @@ func (w *WaveformImageGenerator) convertToWav(ctx context.Context, id, inPath, o
 	m.SetOption("audio-samplerate", mpv.FORMAT_INT64, 22050)
 	m.SetOptionString("audio-channels", "mono")
 	m.SetOptionString("audio-format", "s16")
+
+	// HLS-specific options for better streaming handling
+	if isURL {
+		m.SetOptionString("force-seekable", "yes")
+		m.SetOptionString("cache", "yes")
+		m.SetOptionString("demuxer-max-bytes", "50MiB")
+		m.SetOptionString("demuxer-max-back-bytes", "10MiB")
+		// log.Printf("[waveform] Processing HLS URL for track %s", id)
+	}
+
 	if err := m.Initialize(); err != nil {
 		return err
 	}
@@ -456,7 +488,10 @@ func (w *WaveformImageGenerator) convertToWav(ctx context.Context, id, inPath, o
 	defer m.TerminateDestroy()
 
 	m.Command([]string{"loadfile", inPath, "replace"})
-	defer w.audioCache.ReleaseReferenceToFile(id)
+	// Only release reference for local files, not URLs
+	if !isURL {
+		defer w.audioCache.ReleaseReferenceToFile(id)
+	}
 
 	// Wait for MPV idle or ctx expiry
 	for {

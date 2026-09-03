@@ -136,7 +136,7 @@ type LocalPlaybackConfig struct {
 	InMemoryCacheSizeMB   int
 	Volume                int
 	EqualizerEnabled      bool
-	EqualizerType         string    // "ISO10Band" or "ISO15Band"
+	EqualizerType         string // "ISO10Band" or "ISO15Band"
 	EqualizerPreamp       float64
 	GraphicEqualizerBands []float64
 	ActiveEQPresetName    string // Name of currently selected EQ preset
@@ -166,6 +166,7 @@ type ThemeConfig struct {
 type TranscodingConfig struct {
 	ForceRawFile     bool
 	RequestTranscode bool
+	UseHLS           bool // Use HLS (HTTP Live Streaming) instead of direct stream
 	Codec            string
 	MaxBitRateKBPS   int
 }
@@ -293,6 +294,7 @@ func DefaultConfig(appVersionTag string) *Config {
 		Transcoding: TranscodingConfig{
 			ForceRawFile:     false,
 			RequestTranscode: false,
+			UseHLS:           false,
 			Codec:            "opus",
 			MaxBitRateKBPS:   160,
 		},
