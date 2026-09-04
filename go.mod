@@ -18,6 +18,7 @@ require (
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-retryablehttp v0.7.8
+	github.com/jeandeaual/go-locale v0.0.0-20250612000132-0ef82f21eade
 	github.com/pelletier/go-toml/v2 v2.4.2
 	github.com/quarckster/go-mpris-server v1.2.0
 	github.com/supersonic-app/fyne-lyrics v0.0.0-20250614151306-b1880a70a410
@@ -53,7 +54,6 @@ require (
 	github.com/hack-pad/go-indexeddb v0.3.2 // indirect
 	github.com/hack-pad/safejs v0.1.1 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
-	github.com/jeandeaual/go-locale v0.0.0-20250612000132-0ef82f21eade // indirect
 	github.com/jsummers/gobmp v0.0.0-20230614200233-a9de23ed2e25 // indirect
 	github.com/koron/go-ssdp v0.1.0 // indirect
 	github.com/mattn/go-runewidth v0.0.24 // indirect
