@@ -1,5 +1,7 @@
 module github.com/supersonic-app/supersonic
 
+replace github.com/supersonic-app/go-upnpcast => ./third_party/go-upnpcast
+
 go 1.24.0
 
 require (
