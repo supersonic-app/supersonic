@@ -1204,11 +1204,15 @@ func (p *playbackEngine) handleTimePosUpdate(seeked bool) {
 	isNearEnd := meta.Type != mediaprovider.MediaItemTypeRadioStation && s.TimePos > meta.Duration.Seconds()-10
 	if p.needToSetNextTrack && isNearEnd {
 		p.needToSetNextTrack = false
+		var err error
 		if nextIdx := p.nextPlayingIndex(); nextIdx >= 0 && nextIdx < len(p.playQueue) {
-			p.setNextTrack(nextIdx)
+			err = p.setNextTrack(nextIdx)
 		} else {
 			// no next track to play, ensure player knows this
-			p.setNextTrack(-1)
+			err = p.setNextTrack(-1)
+		}
+		if err != nil {
+			log.Printf("failed to set next track: %v", err)
 		}
 	}
 	if p.callbacksDisabled {
