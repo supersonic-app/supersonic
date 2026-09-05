@@ -488,15 +488,39 @@ func (w *WaveformImageGenerator) convertToWav(ctx context.Context, id, inPath, o
 	w.convertMu.Lock()
 	defer w.convertMu.Unlock()
 
+	// Drain any events left over from the previous job on this shared core
+	// so a stale idle/start event can't be misread as belonging to this
+	// job below.
+	for m.WaitEvent(0).Event_Id != mpv.EVENT_NONE {
+	}
+
 	if err := m.SetOptionString("ao-pcm-file", outPath); err != nil {
 		return err
 	}
 	if err := m.Command([]string{"loadfile", inPath, "replace"}); err != nil {
 		return err
 	}
+	// Force the AO to close and reopen so it re-reads ao-pcm-file for this
+	// job. Every waveform job uses the same fixed sample format, so mpv
+	// would otherwise keep reusing the AO instance opened by the very
+	// first job forever after (this is intentional mpv behavior, to avoid
+	// audio-device reopen clicks when the format doesn't change) --
+	// silently ignoring every later job's output path, since the pcm AO
+	// driver only opens ao-pcm-file once, in its own init(). Best-effort:
+	// ao-reload is an old but undocumented/internal mpv command, so don't
+	// fail the job if it's unsupported by the linked libmpv.
+	m.Command([]string{"ao-reload"})
+
 	defer w.audioCache.ReleaseReferenceToFile(id)
 
-	// Wait for MPV idle or ctx expiry
+	// Wait for MPV idle or ctx expiry. Only trust idle/idle-active as
+	// meaning "this job is done" once we've actually seen this job's own
+	// EVENT_START_FILE -- immediately after loadfile the shared core can
+	// still briefly report idle state left over from the previous job
+	// (loadfile only queues the change; mpv starts the new file
+	// asynchronously), which would otherwise look like instant completion
+	// of a job that hasn't even started yet.
+	started := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -508,18 +532,23 @@ func (w *WaveformImageGenerator) convertToWav(ctx context.Context, id, inPath, o
 			// use small timeout to allow detecting ctx expiry
 			// without too much delay
 			e := m.WaitEvent(0.05 /*timeout seconds*/)
-			if e.Event_Id == mpv.EVENT_IDLE {
+			if e.Event_Id == mpv.EVENT_START_FILE {
+				started = true
+			}
+			if started && e.Event_Id == mpv.EVENT_IDLE {
 				if _, err := os.Stat(outPath); os.IsNotExist(err) {
 					log.Printf("WARNING! file %s does not exist after MPV convert", outPath)
 				}
 				return nil
 			}
-			ia := m.GetPropertyString("idle-active")
-			if ia == "yes" || ia == "true" {
-				if _, err := os.Stat(outPath); os.IsNotExist(err) {
-					log.Printf("WARNING! file %s does not exist after MPV convert", outPath)
+			if started {
+				ia := m.GetPropertyString("idle-active")
+				if ia == "yes" || ia == "true" {
+					if _, err := os.Stat(outPath); os.IsNotExist(err) {
+						log.Printf("WARNING! file %s does not exist after MPV convert", outPath)
+					}
+					return nil
 				}
-				return nil
 			}
 		}
 	}
