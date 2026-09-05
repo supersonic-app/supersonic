@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -75,6 +76,7 @@ type App struct {
 	isFirstLaunch bool // set by config file reader
 	bgrndCtx      context.Context
 	cancel        context.CancelFunc
+	httpClients   *appHTTPClientFactory
 
 	lastWrittenCfg Config
 
@@ -133,13 +135,18 @@ func StartupApp(appName, displayAppName, appVersion, appVersionTag, latestReleas
 		cli.Show()
 		return nil, ErrAnotherInstance
 	}
+	a.httpClients = newAppHTTPClientFactory(a.Config.Application.HTTPProxy)
+	if a.httpClients.configuredProxyErr != nil {
+		return nil, fmt.Errorf("invalid configured HTTP proxy: %w", a.httpClients.configuredProxyErr)
+	}
+	outboundHTTPClient := a.httpClients.NewClient(0, false)
 
 	log.Printf("Starting %s...", appName)
 	log.Printf("Using config dir: %s", confDir)
 	log.Printf("Using cache dir: %s", cacheDir)
 
+	a.UpdateChecker = NewUpdateChecker(appVersionTag, latestReleaseURL, &a.Config.Application.LastCheckedVersion, outboundHTTPClient)
 	if a.Config.Application.EnableAutoUpdateChecker {
-		a.UpdateChecker = NewUpdateChecker(appVersionTag, latestReleaseURL, &a.Config.Application.LastCheckedVersion)
 		a.UpdateChecker.Start(a.bgrndCtx, 24*time.Hour)
 	}
 
@@ -150,16 +157,16 @@ func StartupApp(appName, displayAppName, appVersion, appVersionTag, latestReleas
 		return nil, err
 	}
 
-	a.ServerManager = NewServerManager(appName, appVersion, a.Config, !portableMode && a.Config.Application.EnablePasswordStorage)
-	a.ImageManager = NewImageManager(a.bgrndCtx, a.ServerManager, cacheDir)
+	a.ServerManager = NewServerManager(appName, appVersion, a.Config, !portableMode && a.Config.Application.EnablePasswordStorage, a.httpClients)
+	a.ImageManager = NewImageManager(a.bgrndCtx, a.ServerManager, cacheDir, outboundHTTPClient)
 	if a.Config.Playback.UseWaveformSeekbar {
-		ac, err := NewAudioCache(a.bgrndCtx, a.ServerManager, filepath.Join(cacheDir, audioCacheSubdir))
+		ac, err := NewAudioCache(a.bgrndCtx, a.ServerManager, filepath.Join(cacheDir, audioCacheSubdir), outboundHTTPClient)
 		if err != nil {
 			log.Printf("failed to create audio cache: %s", err.Error())
 		}
 		a.AudioCache = ac
 	}
-	a.PlaybackManager = NewPlaybackManager(a.bgrndCtx, a.ServerManager, a.AudioCache, a.LocalPlayer, &a.Config.Playback, &a.Config.Scrobbling, &a.Config.Transcoding, &a.Config.Application)
+	a.PlaybackManager = NewPlaybackManager(a.bgrndCtx, a.ServerManager, a.AudioCache, a.LocalPlayer, &a.Config.Playback, &a.Config.Scrobbling, &a.Config.Transcoding, &a.Config.Application, outboundHTTPClient)
 	a.PlaybackManager.CoverArtPathFn = func(coverArtID string) (string, error) {
 		// Ensure the thumbnail is cached on disk, then return its path so
 		// the DLNA player can expose it through the local proxy as
@@ -175,14 +182,14 @@ func StartupApp(appName, displayAppName, appVersion, appVersionTag, latestReleas
 	var fetch *LrcLibFetcher
 	if a.Config.Application.EnableLrcLib {
 		timeout := time.Duration(a.Config.Application.RequestTimeoutSeconds) * time.Second
-		fetch = NewLrcLibFetcher(a.cacheDir, a.Config.Application.CustomLrcLibUrl, timeout)
+		fetch = NewLrcLibFetcher(a.cacheDir, a.Config.Application.CustomLrcLibUrl, timeout, outboundHTTPClient)
 	}
 	a.LyricsManager = NewLyricsManager(a.ServerManager, fetch)
 	a.EQPresetManager = NewEQPresetManager(confDir)
 
 	// Initialize AutoEQ manager
 	autoEQTimeout := time.Duration(a.Config.Application.RequestTimeoutSeconds) * time.Second
-	a.AutoEQManager = NewAutoEQManager(filepath.Join(cacheDir, "autoeq"), autoEQTimeout)
+	a.AutoEQManager = NewAutoEQManager(filepath.Join(cacheDir, "autoeq"), autoEQTimeout, outboundHTTPClient)
 
 	// Periodically scan for remote players
 	go a.PlaybackManager.ScanRemotePlayers(a.bgrndCtx, true /*fastScan*/)
@@ -320,7 +327,8 @@ func (a *App) readConfig() {
 		if cfgExists {
 			backupCfgName := fmt.Sprintf("%s.bak", configFile)
 			log.Printf("Config file may be malformed: copying to %s", backupCfgName)
-			_ = util.CopyFile(cfgPath, path.Join(a.configDir, backupCfgName))
+			backupPath := path.Join(a.configDir, backupCfgName)
+			_ = util.CopyFileWithMode(cfgPath, backupPath, 0o600)
 		}
 	}
 	a.Config = cfg
@@ -336,8 +344,11 @@ func (a *App) startConfigWriter(ctx context.Context) {
 			return
 		case <-tick.C:
 			if !reflect.DeepEqual(&a.lastWrittenCfg, a.Config) {
-				a.Config.WriteConfigFile(a.configFilePath())
-				a.lastWrittenCfg = *a.Config
+				if err := a.Config.WriteConfigFile(a.configFilePath()); err != nil {
+					log.Printf("failed to write app config file: %v", err)
+				} else {
+					a.lastWrittenCfg = *a.Config
+				}
 			}
 		}
 	}()
@@ -370,7 +381,20 @@ func (a *App) initMPV() error {
 	p := mpv.NewWithClientName(a.appName)
 	c := a.Config.LocalPlayback
 	c.InMemoryCacheSizeMB = clamp(c.InMemoryCacheSizeMB, 10, 500)
-	if err := p.Init(c.InMemoryCacheSizeMB); err != nil {
+
+	// Pass only an explicitly configured proxy; an empty value leaves
+	// proxy selection to MPV's own environment handling.
+	httpProxy := a.httpClients.proxyForMPV()
+	if err := a.httpClients.configureMPVProxyEnvironment(); err != nil {
+		return fmt.Errorf("configure MPV proxy environment: %w", err)
+	}
+
+	// Log proxy configuration for debugging (redact credentials)
+	if httpProxy != "" {
+		log.Printf("Setting MPV proxy: %s", redactProxyURL(httpProxy))
+	}
+
+	if err := p.Init(c.InMemoryCacheSizeMB, httpProxy); err != nil {
 		return fmt.Errorf("failed to initialize mpv player: %s", err.Error())
 	}
 	a.LocalPlayer = p
@@ -649,14 +673,12 @@ func (a *App) LoadSavedPlayQueue() error {
 	if isShuffle {
 		unshuffledQueueFilePath := path.Join(a.configDir, savedUnshuffledQueueFile)
 		unshuffledPlayQueue, err = LoadPlayQueue(unshuffledQueueFilePath, a.ServerManager, false)
-
 		if err != nil {
 			return err
 		}
 
 		shuffledQueueFilePath := path.Join(a.configDir, savedShuffledQueueFile)
 		shuffledPlayQueue, err = LoadPlayQueue(shuffledQueueFilePath, a.ServerManager, false)
-
 		if err != nil {
 			return err
 		}
@@ -697,7 +719,10 @@ func (a *App) LoadSavedPlayQueue() error {
 }
 
 func (a *App) SaveConfigFile() {
-	a.Config.WriteConfigFile(a.configFilePath())
+	if err := a.Config.WriteConfigFile(a.configFilePath()); err != nil {
+		log.Printf("failed to write app config file: %v", err)
+		return
+	}
 	a.lastWrittenCfg = *a.Config
 }
 
@@ -807,4 +832,16 @@ func isWindowsGUI() bool {
 	}
 
 	return subsystem == 2 /*IMAGE_SUBSYSTEM_WINDOWS_GUI*/
+}
+
+// redactProxyURL removes credentials from proxy URL for safe logging
+func redactProxyURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "<invalid URL>"
+	}
+	if u.User != nil {
+		u.User = nil
+	}
+	return u.String()
 }
