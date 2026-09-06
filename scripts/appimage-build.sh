@@ -48,7 +48,7 @@ else
   cp /usr/lib/x86_64-linux-gnu/librubberband.so.2 Supersonic.AppDir/usr/lib/ #
   cp /usr/lib/x86_64-linux-gnu/libzimg.so.2 Supersonic.AppDir/usr/lib/ #
   cp /usr/lib/x86_64-linux-gnu/libjack.so.0 Supersonic.AppDir/usr/lib/ #
-  cp /usr/lib/x86_64-linux-gnu/libva-wayland.so.2 Supersonic.AppDir/usr/lib/ #Don't delete
+  cp /usr/lib/x86_64-linux-gnu/libva-wayland.so.2 Supersonic.AppDir/usr/lib/ #
   cp /usr/lib/x86_64-linux-gnu/libzvbi.so.0 Supersonic.AppDir/usr/lib/ #
   cp /usr/lib/x86_64-linux-gnu/libsnappy.so.1 Supersonic.AppDir/usr/lib/ #
   cp /usr/lib/x86_64-linux-gnu/libgsm.so.1 Supersonic.AppDir/usr/lib/ #
@@ -83,7 +83,7 @@ else
   cp /usr/lib/x86_64-linux-gnu/libpgm-5.3.so.0 Supersonic.AppDir/usr/lib/ #
   cp /usr/lib/x86_64-linux-gnu/libnorm.so.1 Supersonic.AppDir/usr/lib/ #
   cp /usr/lib/x86_64-linux-gnu/libsndio.so.7 Supersonic.AppDir/usr/lib/ #
-  cp /usr/lib/x86_64-linux-gnu/libssh-gcrypt.so.4 Supersonic.AppDir/usr/lib/ # Don't delete
+  cp /usr/lib/x86_64-linux-gnu/libssh-gcrypt.so.4 Supersonic.AppDir/usr/lib/
   cp /usr/lib/x86_64-linux-gnu/libflite_cmu_us_kal16.so.1 Supersonic.AppDir/usr/lib/ #
   cp /usr/lib/x86_64-linux-gnu/libblas.so.3 Supersonic.AppDir/usr/lib/ #
   cp /usr/lib/x86_64-linux-gnu/liblapack.so.3 Supersonic.AppDir/usr/lib/ #
@@ -109,6 +109,9 @@ else
   cp /usr/lib/x86_64-linux-gnu/libicuuc.so.70 Supersonic.AppDir/usr/lib/ # CachyOS fix
   cp /usr/lib/x86_64-linux-gnu/libicudata.so.70 Supersonic.AppDir/usr/lib/ # CachyOS fix
   cp /usr/lib/x86_64-linux-gnu/libnettle.so.8 Supersonic.AppDir/usr/lib/
+  cp /usr/lib/x86_64-linux-gnu/libcdio.so.19 Supersonic.AppDir/usr/lib/ #void linux + CachyOS fix 
+  cp /usr/lib/x86_64-linux-gnu/libraw1394.so.11 Supersonic.AppDir/usr/lib/ #void linux fix
+  cp /usr/lib/x86_64-linux-gnu/librom1394.so.0 Supersonic.AppDir/usr/lib/ #requirement for libraw1394
   set +x
 fi
 
