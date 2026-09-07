@@ -33,6 +33,12 @@ type WaveformImageGenerator struct {
 	converter     *mpv.Mpv
 	converterErr  error
 	convertMu     sync.Mutex // serializes use of the shared converter core
+
+	// aoReloadUnsupported is set once the "ao-reload" command (see
+	// convertToWav) fails on this libmpv build. It isn't part of mpv's
+	// public API, so it may be missing or removed in some builds/versions.
+	// Guarded by convertMu.
+	aoReloadUnsupported bool
 }
 
 // Buffer pool for waveform analysis to reduce allocations
@@ -451,31 +457,57 @@ func float64ToByte(val float64) byte {
 // triggered, no mpv core is ever spun up.
 func (w *WaveformImageGenerator) converterCore() (*mpv.Mpv, error) {
 	w.converterOnce.Do(func() {
-		m := mpv.Create()
-		// Don't load the user's mpv config/scripts into this internal,
-		// invisible, disk-to-disk conversion core.
-		m.SetOptionString("config", "no")
-		m.SetOptionString("video", "no")
-		m.SetOptionString("audio-display", "no")
-		m.SetOptionString("terminal", "no")
-		m.SetOptionString("idle", "yes")
-		// Screensaver inhibition is meaningless for a silent, invisible
-		// conversion job.
-		m.SetOptionString("stop-screensaver", "no")
-		m.SetOptionString("ao", "pcm")
-		m.SetOption("volume", mpv.FORMAT_INT64, 100)
-		// no need to preserve full sample resolution just for waveform image
-		// let's make less data to process and smaller on-disk file
-		m.SetOption("audio-samplerate", mpv.FORMAT_INT64, 22050)
-		m.SetOptionString("audio-channels", "mono")
-		m.SetOptionString("audio-format", "s16")
-		if err := m.Initialize(); err != nil {
-			w.converterErr = err
-			return
-		}
-		w.converter = m
+		w.converter, w.converterErr = newConverterCore()
 	})
 	return w.converter, w.converterErr
+}
+
+// newConverterCore creates and initializes a new mpv core configured for
+// disk-to-disk WAV conversion. Split out from converterCore so it can also
+// be used by recreateConverterLocked to build a replacement core.
+func newConverterCore() (*mpv.Mpv, error) {
+	m := mpv.Create()
+	// Don't load the user's mpv config/scripts into this internal,
+	// invisible, disk-to-disk conversion core.
+	m.SetOptionString("config", "no")
+	m.SetOptionString("video", "no")
+	m.SetOptionString("audio-display", "no")
+	m.SetOptionString("terminal", "no")
+	m.SetOptionString("idle", "yes")
+	// Screensaver inhibition is meaningless for a silent, invisible
+	// conversion job.
+	m.SetOptionString("stop-screensaver", "no")
+	m.SetOptionString("ao", "pcm")
+	m.SetOption("volume", mpv.FORMAT_INT64, 100)
+	// no need to preserve full sample resolution just for waveform image
+	// let's make less data to process and smaller on-disk file
+	m.SetOption("audio-samplerate", mpv.FORMAT_INT64, 22050)
+	m.SetOptionString("audio-channels", "mono")
+	m.SetOptionString("audio-format", "s16")
+	if err := m.Initialize(); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// recreateConverterLocked tears down the current shared converter core (if
+// any) and replaces it with a freshly initialized one. Used as a fallback
+// when "ao-reload" can't be relied on to make a reused core pick up a new
+// ao-pcm-file (see convertToWav): a freshly initialized core's AO always
+// reads the current ao-pcm-file the first time it's used. Callers must hold
+// convertMu.
+func (w *WaveformImageGenerator) recreateConverterLocked() (*mpv.Mpv, error) {
+	if w.converter != nil {
+		w.converter.Command([]string{"stop"})
+		w.converter.TerminateDestroy()
+		w.converter = nil
+	}
+	m, err := newConverterCore()
+	if err != nil {
+		return nil, err
+	}
+	w.converter = m
+	return m, nil
 }
 
 func (w *WaveformImageGenerator) convertToWav(ctx context.Context, id, inPath, outPath string) error {
@@ -488,10 +520,24 @@ func (w *WaveformImageGenerator) convertToWav(ctx context.Context, id, inPath, o
 	w.convertMu.Lock()
 	defer w.convertMu.Unlock()
 
-	// Drain any events left over from the previous job on this shared core
-	// so a stale idle/start event can't be misread as belonging to this
-	// job below.
-	for m.WaitEvent(0).Event_Id != mpv.EVENT_NONE {
+	if w.aoReloadUnsupported {
+		// A previous job found that "ao-reload" (below) isn't supported by
+		// this libmpv build, so a reused core's AO can't be made to pick up
+		// a new ao-pcm-file. Permanently fall back to a fresh core per job
+		// instead: slower, but a freshly initialized AO always reads the
+		// current ao-pcm-file the first time it's used, so correctness
+		// doesn't depend on ao-reload at all.
+		var err error
+		m, err = w.recreateConverterLocked()
+		if err != nil {
+			return err
+		}
+	} else {
+		// Drain any events left over from the previous job on this shared
+		// core so a stale idle/start event can't be misread as belonging to
+		// this job below.
+		for m.WaitEvent(0).Event_Id != mpv.EVENT_NONE {
+		}
 	}
 
 	if err := m.SetOptionString("ao-pcm-file", outPath); err != nil {
@@ -500,16 +546,37 @@ func (w *WaveformImageGenerator) convertToWav(ctx context.Context, id, inPath, o
 	if err := m.Command([]string{"loadfile", inPath, "replace"}); err != nil {
 		return err
 	}
-	// Force the AO to close and reopen so it re-reads ao-pcm-file for this
-	// job. Every waveform job uses the same fixed sample format, so mpv
-	// would otherwise keep reusing the AO instance opened by the very
-	// first job forever after (this is intentional mpv behavior, to avoid
-	// audio-device reopen clicks when the format doesn't change) --
-	// silently ignoring every later job's output path, since the pcm AO
-	// driver only opens ao-pcm-file once, in its own init(). Best-effort:
-	// ao-reload is an old but undocumented/internal mpv command, so don't
-	// fail the job if it's unsupported by the linked libmpv.
-	m.Command([]string{"ao-reload"})
+
+	if !w.aoReloadUnsupported {
+		// Force the AO to close and reopen so it re-reads ao-pcm-file for
+		// this job. Every waveform job uses the same fixed sample format,
+		// so mpv would otherwise keep reusing the AO instance opened by the
+		// very first job forever after (this is intentional mpv behavior,
+		// to avoid audio-device reopen clicks when the format doesn't
+		// change) -- silently ignoring every later job's output path, since
+		// the pcm AO driver only opens ao-pcm-file once, in its own init().
+		//
+		// ao-reload is an old, undocumented/internal mpv command -- not
+		// part of mpv's public API -- so it may be missing on some builds
+		// or removed in a future mpv version. If it fails, this job's AO is
+		// already stale from the previous job, so redo the load on a fresh
+		// core (see aoReloadUnsupported above) rather than let it silently
+		// write to the wrong file, or none at all.
+		if err := m.Command([]string{"ao-reload"}); err != nil {
+			log.Printf("WARNING: mpv \"ao-reload\" command failed (%v); this libmpv build may not support it. Falling back to a fresh mpv core for each waveform conversion from now on.", err)
+			w.aoReloadUnsupported = true
+			var rerr error
+			if m, rerr = w.recreateConverterLocked(); rerr != nil {
+				return rerr
+			}
+			if err := m.SetOptionString("ao-pcm-file", outPath); err != nil {
+				return err
+			}
+			if err := m.Command([]string{"loadfile", inPath, "replace"}); err != nil {
+				return err
+			}
+		}
+	}
 
 	defer w.audioCache.ReleaseReferenceToFile(id)
 
