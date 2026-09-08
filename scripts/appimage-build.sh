@@ -112,6 +112,7 @@ else
   cp /usr/lib/x86_64-linux-gnu/libcdio.so.19 Supersonic.AppDir/usr/lib/ #void linux + CachyOS fix 
   cp /usr/lib/x86_64-linux-gnu/libraw1394.so.11 Supersonic.AppDir/usr/lib/ #void linux fix
   cp /usr/lib/x86_64-linux-gnu/librom1394.so.0 Supersonic.AppDir/usr/lib/ #requirement for libraw1394
+  cp /usr/lib/x86_64-linux-gnu/libiec61883.so.0 Supersonic.AppDir/usr/lib/ #requirement for libraw1394
   set +x
 fi
 
