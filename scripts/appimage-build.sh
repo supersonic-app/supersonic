@@ -113,7 +113,8 @@ else
   cp /usr/lib/x86_64-linux-gnu/libraw1394.so.11 Supersonic.AppDir/usr/lib/ #void linux fix
   cp /usr/lib/x86_64-linux-gnu/librom1394.so.0 Supersonic.AppDir/usr/lib/ #requirement for libraw1394
   cp /usr/lib/x86_64-linux-gnu/libiec61883.so.0 Supersonic.AppDir/usr/lib/ #requirement for libraw1394
-  cp /usr/lib/x86_64-linux-gnu/libbsd.so.0 Supersonic.AppDir/usr/lib/
+  cp /usr/lib/x86_64-linux-gnu/libbsd.so.0 Supersonic.AppDir/usr/lib/ #
+  cp /usr/lib/x86_64-linux-gnu/libbmd.so.0 Supersonic.AppDir/usr/lib/ #
   set +x
 fi
 
