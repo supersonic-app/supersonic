@@ -41,6 +41,7 @@ func (m *Controller) DoAddTracksToPlaylistWorkflow(trackIDs []string) {
 			)
 		})
 		pop.Hide()
+		m.doModalClosed()
 		m.App.Config.Application.AddToPlaylistSkipDuplicates = sp.SkipDuplicates
 		if id == "" /* creating new playlist */ {
 			go func() {
