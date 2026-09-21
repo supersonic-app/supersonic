@@ -2,6 +2,7 @@ package browsing
 
 import (
 	"fmt"
+	"image"
 	"log"
 	"strconv"
 	"strings"
@@ -30,41 +31,46 @@ type PlaylistPage struct {
 
 	playlistPageState
 
-	disposed     bool
-	header       *PlaylistPageHeader
-	tracklist    *widgets.Tracklist
-	tracks       []*mediaprovider.Track
-	nowPlayingID string
-	container    *fyne.Container
+	disposed      bool
+	header        *PlaylistPageHeader
+	tracklist     *widgets.Tracklist
+	tracks        []*mediaprovider.Track
+	nowPlayingID  string
+	container     *fyne.Container
+	bgWrapper     *BackgroundWrapper
+	curCoverImage image.Image
 }
 
 type playlistPageState struct {
-	playlistID string
-	conf       *backend.PlaylistPageConfig
-	contr      *controller.Controller
-	widgetPool *util.WidgetPool
-	sm         *backend.ServerManager
-	pm         *backend.PlaybackManager
-	im         *backend.ImageManager
-	trackSort  widgets.TracklistSort
-	scroll     float32
+	playlistID     string
+	conf           *backend.PlaylistPageConfig
+	contr          *controller.Controller
+	widgetPool     *util.WidgetPool
+	sm             *backend.ServerManager
+	pm             *backend.PlaybackManager
+	im             *backend.ImageManager
+	trackSort      widgets.TracklistSort
+	scroll         float32
+	backgroundMode string // global background mode from AppConfig
 }
 
 func NewPlaylistPage(
 	playlistID string,
 	conf *backend.PlaylistPageConfig,
+	backgroundMode string,
 	pool *util.WidgetPool,
 	contr *controller.Controller,
 	sm *backend.ServerManager,
 	pm *backend.PlaybackManager,
 	im *backend.ImageManager,
 ) *PlaylistPage {
-	return newPlaylistPage(playlistID, conf, contr, pool, sm, pm, im, widgets.TracklistSort{}, 0)
+	return newPlaylistPage(playlistID, conf, backgroundMode, contr, pool, sm, pm, im, widgets.TracklistSort{}, 0)
 }
 
 func newPlaylistPage(
 	playlistID string,
 	conf *backend.PlaylistPageConfig,
+	backgroundMode string,
 	contr *controller.Controller,
 	pool *util.WidgetPool,
 	sm *backend.ServerManager,
@@ -73,7 +79,7 @@ func newPlaylistPage(
 	trackSort widgets.TracklistSort,
 	scroll float32,
 ) *PlaylistPage {
-	a := &PlaylistPage{playlistPageState: playlistPageState{playlistID: playlistID, conf: conf, contr: contr, widgetPool: pool, sm: sm, pm: pm, im: im, scroll: scroll}}
+	a := &PlaylistPage{playlistPageState: playlistPageState{playlistID: playlistID, conf: conf, backgroundMode: backgroundMode, contr: contr, widgetPool: pool, sm: sm, pm: pm, im: im, scroll: scroll}}
 	a.ExtendBaseWidget(a)
 	if h := a.widgetPool.Obtain(util.WidgetTypePlaylistPageHeader); h != nil {
 		a.header = h.(*PlaylistPageHeader)
@@ -108,9 +114,7 @@ func newPlaylistPage(
 	// connect tracklist actions
 	a.contr.ConnectTracklistActions(a.tracklist)
 
-	a.container = container.NewBorder(
-		container.New(&layout.CustomPaddedLayout{LeftPadding: 15, RightPadding: 15, TopPadding: 15, BottomPadding: 10}, a.header),
-		nil, nil, nil, container.New(&layout.CustomPaddedLayout{LeftPadding: 15, RightPadding: 15, BottomPadding: 15}, a.tracklist))
+	// Container will be created in CreateRenderer with background wrapper
 
 	a.tracklist.SetLoading(true)
 	go a.load()
@@ -118,6 +122,29 @@ func newPlaylistPage(
 }
 
 func (a *PlaylistPage) CreateRenderer() fyne.WidgetRenderer {
+	if a.container == nil {
+		// Create main content
+		mainContent := container.NewBorder(
+			container.New(&layout.CustomPaddedLayout{LeftPadding: 15, RightPadding: 15, TopPadding: 15, BottomPadding: 10}, a.header),
+			nil, nil, nil, container.New(&layout.CustomPaddedLayout{LeftPadding: 15, RightPadding: 15, BottomPadding: 15}, a.tracklist))
+
+		// Wrap with background
+		a.bgWrapper = NewBackgroundWrapper(mainContent)
+		mode := a.backgroundMode
+		if mode == "" {
+			mode = "gradient" // default to gradient
+		}
+		if a.curCoverImage != nil && mode != "disabled" {
+			a.bgWrapper.ApplyBackground(a.curCoverImage, mode)
+			a.header.SetTransparentBackground(true)
+			a.tracklist.SetHeaderTransparent(true)
+		} else {
+			a.bgWrapper.ApplyBackground(nil, "disabled")
+			a.header.SetTransparentBackground(false)
+			a.tracklist.SetHeaderTransparent(false)
+		}
+		a.container = container.NewStack(a.bgWrapper)
+	}
 	return widget.NewSimpleRenderer(a.container)
 }
 
@@ -148,7 +175,44 @@ func (a *PlaylistPage) OnSongChange(item mediaprovider.MediaItem, lastScrobbledI
 
 func (a *PlaylistPage) Reload() {
 	a.tracklist.SetLoading(true)
+	// Update background based on current config
+	if a.bgWrapper != nil {
+		mode := a.backgroundMode
+		if mode == "" {
+			mode = "gradient" // default to gradient
+		}
+		if a.curCoverImage != nil && mode != "disabled" {
+			a.bgWrapper.ApplyBackground(a.curCoverImage, mode)
+			a.header.SetTransparentBackground(true)
+			a.tracklist.SetHeaderTransparent(true)
+		} else {
+			// Disabled mode - hide background and restore opaque headers
+			a.bgWrapper.ApplyBackground(nil, "disabled")
+			a.header.SetTransparentBackground(false)
+			a.tracklist.SetHeaderTransparent(false)
+		}
+	}
 	go a.load()
+}
+
+// onImageLoaded receives the loaded cover image and applies background
+func (a *PlaylistPage) onImageLoaded(img image.Image) {
+	// Store the image
+	a.curCoverImage = img
+	// Only apply if wrapper is ready (renderer created)
+	if a.bgWrapper == nil {
+		return
+	}
+	mode := a.backgroundMode
+	if mode == "" {
+		mode = "gradient" // default to gradient
+	}
+	a.bgWrapper.ApplyBackground(img, mode)
+	// Make header and tracklist transparent when background is active
+	if mode != "disabled" {
+		a.header.SetTransparentBackground(true)
+		a.tracklist.SetHeaderTransparent(true)
+	}
 }
 
 var _ CanSelectAll = (*PlaylistPage)(nil)
@@ -311,6 +375,8 @@ type PlaylistPageHeader struct {
 	playlistInfo *mediaprovider.PlaylistWithTracks
 	image        *widgets.ImagePlaceholder
 
+	TransparentBackground bool
+
 	editButton       *widget.Button
 	titleLabel       *widget.RichText
 	descriptionLabel *widget.Label
@@ -318,8 +384,10 @@ type PlaylistPageHeader struct {
 	ownerLabel       *widget.Label
 	trackTimeLabel   *widget.Label
 	collapseBtn      *widgets.HeaderCollapseButton
+	buttonRow        *fyne.Container
 
 	fullSizeCoverFetching bool
+	bgRect                *myTheme.ThemedRectangle
 
 	container *fyne.Container
 }
@@ -437,7 +505,7 @@ func NewPlaylistPageHeader(page *PlaylistPage) *PlaylistPageHeader {
 		pop.ShowAtPosition(fyne.NewPos(pos.X, pos.Y+menuBtn.Size().Height))
 	}
 
-	buttonRow = container.NewHBox(a.editButton, playButton, shuffleBtn, searchBtn, menuBtn)
+	a.buttonRow = container.NewHBox(a.editButton, playButton, shuffleBtn, searchBtn, menuBtn)
 
 	a.collapseBtn = widgets.NewHeaderCollapseButton(func() {
 		a.Compact = !a.Compact
@@ -446,18 +514,7 @@ func NewPlaylistPageHeader(page *PlaylistPage) *PlaylistPageHeader {
 	})
 	a.collapseBtn.Hidden = true
 
-	a.container = util.AddHeaderBackground(
-		container.NewStack(
-			container.NewBorder(nil, nil, a.image, nil,
-				container.NewVBox(a.titleLabel, container.New(layout.NewCustomPaddedVBoxLayout(theme.Padding()-10),
-					a.descriptionLabel,
-					a.ownerLabel,
-					a.trackTimeLabel),
-					buttonRow,
-				)),
-			container.NewVBox(container.NewHBox(layout.NewSpacer(), a.collapseBtn)),
-		),
-	)
+	// Note: container will be created in CreateRenderer
 	return a
 }
 
@@ -469,7 +526,46 @@ func (a *PlaylistPageHeader) Clear() {
 	a.image.SetImage(nil, false)
 }
 
+func (a *PlaylistPageHeader) SetTransparentBackground(transparent bool) {
+	if a.TransparentBackground != transparent {
+		a.TransparentBackground = transparent
+		// Simply toggle the visibility of our fixed background rectangle
+		if a.bgRect != nil {
+			if transparent {
+				a.bgRect.Hide()
+			} else {
+				a.bgRect.Show()
+			}
+		}
+	}
+}
+
 func (a *PlaylistPageHeader) CreateRenderer() fyne.WidgetRenderer {
+	if a.container == nil {
+		content := container.NewStack(
+			container.NewBorder(nil, nil, a.image, nil,
+				container.NewVBox(a.titleLabel, container.New(layout.NewCustomPaddedVBoxLayout(theme.Padding()-10),
+					a.descriptionLabel,
+					a.ownerLabel,
+					a.trackTimeLabel),
+					a.buttonRow,
+				)),
+			container.NewVBox(container.NewHBox(layout.NewSpacer(), a.collapseBtn)),
+		)
+		// Create background rectangle (always present, toggle visibility)
+		a.bgRect = myTheme.NewThemedRectangle(myTheme.ColorNamePageHeader)
+		a.bgRect.CornerRadius = theme.InputRadiusSize()
+
+		// Check if page has background enabled - if so, hide the header background
+		backgroundEnabled := a.page != nil && a.page.backgroundMode != "" && a.page.backgroundMode != "disabled"
+		if a.TransparentBackground || backgroundEnabled {
+			a.bgRect.Hide()
+		}
+
+		// Wrap content with padding and stack with background
+		paddedContent := container.New(&layout.CustomPaddedLayout{LeftPadding: 10, RightPadding: 10, TopPadding: 10, BottomPadding: 10}, content)
+		a.container = container.NewStack(a.bgRect, paddedContent)
+	}
 	return widget.NewSimpleRenderer(a.container)
 }
 
@@ -485,12 +581,16 @@ func (a *PlaylistPageHeader) Update(playlist *mediaprovider.PlaylistWithTracks) 
 	if playlist.CoverArtID != "" {
 		if im, err := a.page.im.GetCoverThumbnail(playlist.CoverArtID); err == nil && im != nil {
 			a.image.SetImage(im, true /*tappable*/)
+			// Notify page for background processing
+			a.page.onImageLoaded(im)
 			haveCover = true
 		}
 	}
 	if !haveCover {
 		if im, err := a.page.im.GetCoverThumbnail(playlist.ID); err == nil && im != nil {
 			a.image.SetImage(im, true)
+			// Notify page for background processing
+			a.page.onImageLoaded(im)
 		}
 	}
 	a.Refresh()
@@ -562,5 +662,5 @@ func (a *PlaylistPageHeader) formatPlaylistTrackTimeStr(p *mediaprovider.Playlis
 }
 
 func (s *playlistPageState) Restore() Page {
-	return newPlaylistPage(s.playlistID, s.conf, s.contr, s.widgetPool, s.sm, s.pm, s.im, s.trackSort, s.scroll)
+	return newPlaylistPage(s.playlistID, s.conf, s.backgroundMode, s.contr, s.widgetPool, s.sm, s.pm, s.im, s.trackSort, s.scroll)
 }

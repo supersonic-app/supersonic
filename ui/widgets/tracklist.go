@@ -212,6 +212,12 @@ func (t *Tracklist) SetLoading(loading bool) {
 	}
 }
 
+func (t *Tracklist) SetHeaderTransparent(transparent bool) {
+	if t.hdr != nil {
+		t.hdr.SetTransparentBackground(transparent)
+	}
+}
+
 func (t *Tracklist) ScrollBy(amount float32) {
 	t.list.ScrollToOffset(t.list.GetScrollOffset() + amount)
 }

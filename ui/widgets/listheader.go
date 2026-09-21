@@ -51,6 +51,9 @@ type ListHeader struct {
 	columnsContainer *fyne.Container
 	container        *fyne.Container
 	popUpMenu        *fyne.Container
+	bgRect           *myTheme.ThemedRectangle
+
+	TransparentBackground bool
 }
 
 func NewListHeader(cols []ListColumn, layout *layouts.ColumnsLayout) *ListHeader {
@@ -63,9 +66,7 @@ func NewListHeader(cols []ListColumn, layout *layouts.ColumnsLayout) *ListHeader
 	for i := range l.columnVisible {
 		l.columnVisible[i] = true
 	}
-	rect := myTheme.NewThemedRectangle(myTheme.ColorNameListHeader)
-	rect.CornerRadius = theme.SelectionRadiusSize()
-	l.container = container.NewStack(rect, l.columnsContainer)
+	// Note: container is created in CreateRenderer to support transparent background
 	l.ExtendBaseWidget(l)
 	l.buildColumns()
 	return l
@@ -83,6 +84,20 @@ func (l *ListHeader) SetColumnVisible(colNum int, visible bool) {
 	}
 	l.columnVisible[colNum] = visible
 	l.columnsContainer.Refresh()
+}
+
+func (l *ListHeader) SetTransparentBackground(transparent bool) {
+	if l.TransparentBackground != transparent {
+		l.TransparentBackground = transparent
+		// Simply toggle the visibility of our fixed background rectangle
+		if l.bgRect != nil {
+			if transparent {
+				l.bgRect.Hide()
+			} else {
+				l.bgRect.Show()
+			}
+		}
+	}
 }
 
 func (l *ListHeader) buildColumns() {
@@ -118,6 +133,17 @@ func (l *ListHeader) SetSorting(sort ListHeaderSort) {
 }
 
 func (l *ListHeader) CreateRenderer() fyne.WidgetRenderer {
+	if l.container == nil {
+		// Create background rectangle (always present, toggle visibility)
+		l.bgRect = myTheme.NewThemedRectangle(myTheme.ColorNameListHeader)
+		l.bgRect.CornerRadius = theme.SelectionRadiusSize()
+
+		if l.TransparentBackground {
+			l.bgRect.Hide()
+		}
+
+		l.container = container.NewStack(l.bgRect, l.columnsContainer)
+	}
 	return widget.NewSimpleRenderer(l.container)
 }
 
@@ -187,9 +213,8 @@ func newColHeader(columnCfg ListColumn, sortDisabled *bool) *colHeader {
 		TextStyle: fyne.TextStyle{Bold: true},
 		Alignment: columnCfg.Alignment,
 	}
-	r := myTheme.NewThemedRectangle(myTheme.ColorNameListHeader)
-	r.Translucent = true
-	c.sortIconContainer = container.NewStack(widget.NewIcon(theme.MenuDropDownIcon()), r)
+	// Icon only - no background (transparent)
+	c.sortIconContainer = container.NewStack(widget.NewIcon(theme.MenuDropDownIcon()))
 	// hack to remove extra icon space
 	// should be hidden whenever sortIcon is hidden
 	c.sortIconNegSpacer = util.NewHSpace(0)
@@ -243,7 +268,6 @@ func (c *colHeader) Refresh() {
 	} else {
 		c.sortIconContainer.Objects[0].(*widget.Icon).Resource = theme.MenuDropUpIcon()
 	}
-	c.sortIconContainer.Objects[1].(*myTheme.ThemedRectangle).Hidden = !c.hovered
 
 	if sort > 0 && c.sortIconContainer.Hidden {
 		c.sortIconContainer.Hidden = false

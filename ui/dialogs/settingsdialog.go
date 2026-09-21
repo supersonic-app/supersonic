@@ -2,6 +2,8 @@ package dialogs
 
 import (
 	"errors"
+	"fmt"
+	"image/color"
 	"log"
 	"math"
 	"os"
@@ -19,6 +21,7 @@ import (
 	"github.com/supersonic-app/supersonic/ui/widgets"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/dialog"
@@ -37,6 +40,8 @@ type SettingsDialog struct {
 	OnPauseFadeSettingsChanged     func()
 	OnAudioDeviceSettingChanged    func()
 	OnThemeSettingChanged          func()
+	OnAccentColorChanged           func()        // Lightweight callback for instant accent updates
+	OnExtractFromCover             func() string // Extract accent color from current track cover art, returns hex color or empty string
 	OnDismiss                      func()
 	OnEqualizerSettingsChanged     func()
 	OnPageNeedsRefresh             func()
@@ -660,9 +665,16 @@ func (s *SettingsDialog) applyAutoEQProfile(profile *backend.AutoEQProfile, geq 
 }
 
 func (s *SettingsDialog) createAppearanceTab(window fyne.Window) *container.TabItem {
-	themeNames := []string{"Default"}
-	themeFileNames := []string{""}
-	i, selIndex := 1, 0
+	// Theme list: Default, Dynamic, then .toml files
+	themeNames := []string{"Default", "Dynamic"}
+	themeFileNames := []string{"", "dynamic"}
+	i, selIndex := 2, 0
+
+	// Check for Dynamic theme first
+	if s.config.Theme.ThemeFile == myTheme.ThemeFileDynamic {
+		selIndex = 1
+	}
+
 	for filename, displayname := range s.themeFiles {
 		themeFileNames = append(themeFileNames, filename)
 		themeNames = append(themeNames, displayname)
@@ -674,26 +686,214 @@ func (s *SettingsDialog) createAppearanceTab(window fyne.Window) *container.TabI
 
 	themeFileSelect := widget.NewSelect(themeNames, nil)
 	themeFileSelect.SetSelectedIndex(selIndex)
+
+	// Mode select - always Dark/Light/Auto for both traditional and dynamic themes
+	themeModeSelect := widget.NewSelect([]string{
+		string(myTheme.AppearanceDark),
+		string(myTheme.AppearanceLight),
+		string(myTheme.AppearanceAuto),
+	}, nil)
+	themeModeSelect.SetSelected(s.config.Theme.Appearance)
+	if themeModeSelect.Selected == "" {
+		themeModeSelect.SetSelectedIndex(0)
+	}
+
 	themeFileSelect.OnChanged = func(_ string) {
 		s.config.Theme.ThemeFile = themeFileNames[themeFileSelect.SelectedIndex()]
 		if s.OnThemeSettingChanged != nil {
 			s.OnThemeSettingChanged()
 		}
 	}
-	themeModeSelect := widget.NewSelect([]string{
-		string(myTheme.AppearanceDark),
-		string(myTheme.AppearanceLight),
-		string(myTheme.AppearanceAuto),
-	}, nil)
-	themeModeSelect.OnChanged = func(_ string) {
-		s.config.Theme.Appearance = themeModeSelect.Options[themeModeSelect.SelectedIndex()]
+
+	themeModeSelect.OnChanged = func(value string) {
+		s.config.Theme.Appearance = value
 		if s.OnThemeSettingChanged != nil {
 			s.OnThemeSettingChanged()
 		}
 	}
-	themeModeSelect.SetSelected(s.config.Theme.Appearance)
-	if themeModeSelect.Selected == "" {
-		themeModeSelect.SetSelectedIndex(0)
+
+	// Ensure we have valid values (defaults should be set in config loading, but ensure here)
+	// Also update the config with defaults so they get saved
+	if s.config.Theme.AccentColor == "" {
+		s.config.Theme.AccentColor = "#286ef4" // Classic Supersonic blue
+	}
+
+	// Hue slider (0-360) for rainbow color selection
+	hueSlider := widget.NewSlider(0, 360)
+	hueSlider.Step = 1
+	hueSlider.SetValue(hexToHue(s.config.Theme.AccentColor))
+
+	// Palette preview rectangles - created once, colors updated on slider changes
+	palettePreviewRects := []*canvas.Rectangle{}
+	previewColors := []float32{20, 20, 20, 30, 20, 20} // widths for: Background, Surface, SurfaceHover, Accent, TextSecondary, TextPrimary
+
+	// Create color swatches container with padding
+	swatchesContainer := container.NewHBox()
+	for _, size := range previewColors {
+		rect := canvas.NewRectangle(color.Transparent)
+		rect.SetMinSize(fyne.NewSize(size, 24))
+		rect.CornerRadius = theme.InputRadiusSize()
+		palettePreviewRects = append(palettePreviewRects, rect)
+		swatchesContainer.Add(rect)
+	}
+
+	// Background for preview (Surface color from palette)
+	previewBg := canvas.NewRectangle(color.Transparent)
+	previewBg.SetMinSize(fyne.NewSize(130, 28))
+	previewBg.CornerRadius = theme.InputRadiusSize()
+
+	// Wrap swatches with padding inside the background
+	palettePreview := container.NewStack(
+		previewBg,
+		container.NewPadded(swatchesContainer),
+	)
+
+	// Generate palette and update preview colors
+	updatePalettePreview := func() {
+		palette, err := myTheme.GeneratePalette(
+			s.config.Theme.AccentColor,
+			s.config.Theme.Saturation,
+			s.config.Theme.Contrast,
+			s.config.Theme.Appearance,
+		)
+		if err != nil {
+			// Fallback to accent color
+			c := colorFromHex(s.config.Theme.AccentColor)
+			for _, rect := range palettePreviewRects {
+				rect.FillColor = c
+				rect.Refresh()
+			}
+			previewBg.FillColor = c
+			previewBg.Refresh()
+			return
+		}
+
+		colors := []color.Color{
+			palette.Background,
+			palette.Surface,
+			palette.SurfaceHover,
+			palette.Accent,
+			palette.TextSecondary,
+			palette.TextPrimary,
+		}
+
+		for i, rect := range palettePreviewRects {
+			rect.FillColor = colors[i]
+			rect.Refresh()
+		}
+		// Calculate average color from palette for distinctive background
+		avgR, avgG, avgB := 0, 0, 0
+		allColors := []color.Color{palette.Background, palette.Surface, palette.SurfaceHover, palette.Accent, palette.TextSecondary, palette.TextPrimary}
+		for _, c := range allColors {
+			r, g, b, _ := c.RGBA()
+			avgR += int(r >> 8)
+			avgG += int(g >> 8)
+			avgB += int(b >> 8)
+		}
+		avgColor := color.RGBA{
+			R: uint8(avgR / len(allColors)),
+			G: uint8(avgG / len(allColors)),
+			B: uint8(avgB / len(allColors)),
+			A: 255,
+		}
+		previewBg.FillColor = avgColor
+		previewBg.Refresh()
+	}
+
+	// Initial palette generation
+	updatePalettePreview()
+
+	// Debounce timer for smooth slider updates
+	var debounceTimer *time.Timer
+
+	hueSlider.OnChanged = func(perceptualHue float64) {
+		// Convert perceptual slider value to actual HSL hue
+		linearHue := perceptualHueToLinear(perceptualHue)
+		s.config.Theme.AccentColor = hueToHex(linearHue)
+
+		// Debounce palette preview updates to avoid lag
+		if debounceTimer != nil {
+			debounceTimer.Stop()
+		}
+		debounceTimer = time.AfterFunc(50*time.Millisecond, func() {
+			fyne.Do(updatePalettePreview)
+		})
+
+		if s.OnAccentColorChanged != nil {
+			s.OnAccentColorChanged()
+		}
+	}
+
+	// Helper to get ranges from theme package (single source of truth)
+	getRanges := func(mode string) myTheme.SliderRanges {
+		return myTheme.GetSliderRanges(mode)
+	}
+	clamp := func(val, min, max float64) float64 {
+		if val < min {
+			return min
+		}
+		if val > max {
+			return max
+		}
+		return val
+	}
+
+	// Create sliders with initial ranges based on current appearance
+	initRanges := getRanges(s.config.Theme.Appearance)
+
+	saturationSlider := widget.NewSlider(initRanges.SatMin, initRanges.SatMax)
+	saturationSlider.Step = 0.05
+	saturationSlider.SetValue(clamp(s.config.Theme.Saturation, initRanges.SatMin, initRanges.SatMax))
+
+	contrastSlider := widget.NewSlider(initRanges.ContrastMin, initRanges.ContrastMax)
+	contrastSlider.Step = 0.05
+	contrastSlider.SetValue(clamp(s.config.Theme.Contrast, initRanges.ContrastMin, initRanges.ContrastMax))
+
+	// Set up OnChanged handlers for sliders
+	saturationSlider.OnChanged = func(f float64) {
+		s.config.Theme.Saturation = f
+		updatePalettePreview()
+		if s.OnAccentColorChanged != nil {
+			s.OnAccentColorChanged()
+		}
+	}
+
+	contrastSlider.OnChanged = func(f float64) {
+		s.config.Theme.Contrast = f
+		updatePalettePreview()
+		if s.OnAccentColorChanged != nil {
+			s.OnAccentColorChanged()
+		}
+	}
+
+	// Helper to check if Dynamic theme is selected
+	isDynamic := func() bool {
+		return themeFileNames[themeFileSelect.SelectedIndex()] == "dynamic"
+	}
+
+	// Enable/disable accent controls based on Dynamic theme selection
+	updateAccentControls := func() {
+		if isDynamic() {
+			hueSlider.Enable()
+			saturationSlider.Enable()
+			contrastSlider.Enable()
+		} else {
+			hueSlider.Disable()
+			saturationSlider.Disable()
+			contrastSlider.Disable()
+		}
+	}
+
+	// Initial state
+	updateAccentControls()
+
+	// Update controls when theme changes
+	themeFileSelect.OnChanged = func(name string) {
+		s.config.Theme.ThemeFile = themeFileNames[themeFileSelect.SelectedIndex()]
+		updateAccentControls()
+		if s.OnThemeSettingChanged != nil {
+			s.OnThemeSettingChanged()
+		}
 	}
 
 	normalFontEntry := widget.NewEntry()
@@ -764,7 +964,43 @@ func (s *SettingsDialog) createAppearanceTab(window fyne.Window) *container.TabI
 	})
 	useWaveformSeekbar.Checked = s.config.Playback.UseWaveformSeekbar
 
-	nowPlayingBackground := widget.NewCheckWithData(lang.L("Use blurred album cover for Now Playing page background"), binding.BindBool(&s.config.NowPlayingConfig.UseBackgroundImage))
+	nowPlayingBackground := widget.NewCheck(lang.L("Use blurred album cover for Now Playing page background"), func(b bool) {
+		s.config.NowPlayingConfig.UseBackgroundImage = b
+		if s.OnPageNeedsRefresh != nil {
+			s.OnPageNeedsRefresh()
+		}
+	})
+	nowPlayingBackground.Checked = s.config.NowPlayingConfig.UseBackgroundImage
+
+	// Background mode for Album, Artist and Playlist pages (shared setting)
+	backgroundModeOptions := []string{lang.L("Disabled"), lang.L("Gradient"), lang.L("Blur")}
+	backgroundModeRadio := widget.NewRadioGroup(backgroundModeOptions, func(choice string) {
+		mode := "disabled"
+		if choice == lang.L("Gradient") {
+			mode = "gradient"
+		} else if choice == lang.L("Blur") {
+			mode = "blur"
+		}
+		s.config.Application.BackgroundMode = mode
+		if s.OnPageNeedsRefresh != nil {
+			s.OnPageNeedsRefresh()
+		}
+	})
+	backgroundModeRadio.Horizontal = true
+	backgroundModeRadio.Required = true
+	// Set initial value
+	initialMode := s.config.Application.BackgroundMode
+	if initialMode == "" {
+		initialMode = "disabled"
+	}
+	switch initialMode {
+	case "gradient":
+		backgroundModeRadio.Selected = lang.L("Gradient")
+	case "blur":
+		backgroundModeRadio.Selected = lang.L("Blur")
+	default:
+		backgroundModeRadio.Selected = lang.L("Disabled")
+	}
 
 	useRoundedImageCorners := widget.NewCheck(lang.L("Use rounded image corners"), func(b bool) {
 		s.config.Theme.UseRoundedImageCorners = b
@@ -774,12 +1010,66 @@ func (s *SettingsDialog) createAppearanceTab(window fyne.Window) *container.TabI
 	})
 	useRoundedImageCorners.Checked = s.config.Theme.UseRoundedImageCorners
 
+	// Create accent color controls container (shown only for Dynamic theme)
+	accentControls := container.NewVBox(
+		s.newSectionSeparator(),
+		widget.NewRichText(&widget.TextSegment{Text: lang.L("Accent Color"), Style: util.BoldRichTextStyle}),
+		// Hue slider with palette preview and extract button in one row
+		container.NewBorder(nil, nil, nil,
+			container.NewHBox(
+				palettePreview,
+				util.NewHSpace(10),
+				widget.NewButton(lang.L("Extract from playing track"), func() {
+					if s.OnExtractFromCover != nil {
+						if extractedHex := s.OnExtractFromCover(); extractedHex != "" {
+							// Update config with extracted color
+							s.config.Theme.AccentColor = extractedHex
+							// Update slider to match new color
+							hueSlider.SetValue(hexToHue(extractedHex))
+							// Update palette preview
+							updatePalettePreview()
+						}
+					}
+				}),
+			),
+			hueSlider,
+		),
+		// Saturation and Contrast on same row, 50/50 split
+		container.NewGridWithColumns(2,
+			container.NewBorder(nil, nil, widget.NewLabel(lang.L("Saturation")), nil, saturationSlider),
+			container.NewBorder(nil, nil, widget.NewLabel(lang.L("Contrast")), nil, contrastSlider),
+		),
+	)
+
+	// Show/hide accent controls based on Dynamic theme selection
+	updateAccentVisibility := func() {
+		if isDynamic() {
+			accentControls.Show()
+		} else {
+			accentControls.Hide()
+		}
+		accentControls.Refresh()
+	}
+
+	// Initial visibility
+	updateAccentVisibility()
+
+	// Update visibility when theme changes
+	originalThemeFileOnChanged := themeFileSelect.OnChanged
+	themeFileSelect.OnChanged = func(name string) {
+		if originalThemeFileOnChanged != nil {
+			originalThemeFileOnChanged(name)
+		}
+		updateAccentVisibility()
+	}
+
 	return container.NewTabItem(lang.L("Appearance"), container.NewVBox(
 		util.NewHSpace(0), // insert a theme.Padding amount of space at top
 		container.NewBorder(nil, nil, widget.NewLabel(lang.L("Theme")), /*left*/
 			container.NewHBox(widget.NewLabel(lang.L("Mode")), themeModeSelect, util.NewHSpace(5)), // right
 			themeFileSelect, // center
 		),
+		accentControls,
 		widget.NewRichText(&widget.TextSegment{Text: lang.L("UI Scaling"), Style: util.BoldRichTextStyle}),
 		uiScaleRadio,
 		container.NewBorder(nil, nil, widget.NewLabel(lang.L("Grid card size")), nil, gridCardSize),
@@ -787,6 +1077,7 @@ func (s *SettingsDialog) createAppearanceTab(window fyne.Window) *container.TabI
 		s.newSectionSeparator(),
 		useWaveformSeekbar,
 		nowPlayingBackground,
+		container.NewBorder(nil, nil, widget.NewLabel(lang.L("Page background mode")), nil, backgroundModeRadio),
 		useRoundedImageCorners,
 		s.newSectionSeparator(),
 		widget.NewRichText(&widget.TextSegment{Text: lang.L("Application font"), Style: util.BoldRichTextStyle}),
@@ -926,4 +1217,147 @@ func (s *SettingsDialog) getActiveTabNumFromConfig() int {
 	default:
 		return 0
 	}
+}
+
+// colorFromHex converts a hex color string to a color.Color
+func colorFromHex(hex string) color.Color {
+	r, g, b := hexToRGB(hex)
+	return color.RGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 255}
+}
+
+// hexToRGB converts a hex color string to RGB values
+func hexToRGB(hex string) (r, g, b float64) {
+	if len(hex) < 7 || hex[0] != '#' {
+		return 255, 136, 69 // default orange
+	}
+	rval, _ := strconv.ParseInt(hex[1:3], 16, 64)
+	gval, _ := strconv.ParseInt(hex[3:5], 16, 64)
+	bval, _ := strconv.ParseInt(hex[5:7], 16, 64)
+	return float64(rval), float64(gval), float64(bval)
+}
+
+// rgbToHex converts RGB values to a hex color string
+func rgbToHex(r, g, b float64) string {
+	return fmt.Sprintf("#%02X%02X%02X", int(r), int(g), int(b))
+}
+
+// perceptualHueToLinear maps a perceptually-uniform slider value (0-360) to actual HSL hue
+// This compresses ranges with high visual variance (blues 200-260) and stretches uniform ranges
+func perceptualHueToLinear(perceptual float64) float64 {
+	// Normalize to 0-1
+	normalized := perceptual / 360.0
+
+	// Apply perceptual curve: ease-in-out with compression in blue-purple range
+	// Using a modified sigmoid-like curve with specific control points
+	// Control points: 0->0, 0.3->0.25 (green-cyan), 0.5->0.5 (blue), 0.7->0.75 (purple-magenta), 1->1
+
+	var linear float64
+	switch {
+	case normalized < 0.3:
+		// Red to Cyan: stretch slightly (0-0.3 -> 0-0.25)
+		linear = normalized * (0.25 / 0.3)
+	case normalized < 0.5:
+		// Cyan to Blue: compress (0.3-0.5 -> 0.25-0.5)
+		linear = 0.25 + (normalized-0.3)*(0.25/0.2)
+	case normalized < 0.7:
+		// Blue to Purple: heavy compression (0.5-0.7 -> 0.5-0.75)
+		linear = 0.5 + (normalized-0.5)*(0.25/0.2)
+	default:
+		// Purple to Red: stretch (0.7-1.0 -> 0.75-1.0)
+		linear = 0.75 + (normalized-0.7)*(0.25/0.3)
+	}
+
+	return linear * 360.0
+}
+
+// linearHueToPerceptual does the inverse: converts actual HSL hue to slider position
+func linearHueToPerceptual(linear float64) float64 {
+	normalized := linear / 360.0
+
+	var perceptual float64
+	switch {
+	case normalized < 0.25:
+		// Red to Cyan
+		perceptual = normalized * (0.3 / 0.25)
+	case normalized < 0.5:
+		// Cyan to Blue
+		perceptual = 0.3 + (normalized-0.25)*(0.2/0.25)
+	case normalized < 0.75:
+		// Blue to Purple
+		perceptual = 0.5 + (normalized-0.5)*(0.2/0.25)
+	default:
+		// Purple to Red
+		perceptual = 0.7 + (normalized-0.75)*(0.3/0.25)
+	}
+
+	return perceptual * 360.0
+}
+
+// hexToHue extracts the perceptual hue (0-360) from a hex color for the slider
+func hexToHue(hex string) float64 {
+	r, g, b := hexToRGB(hex)
+	linearHue := rgbToHue(r, g, b)
+	return linearHueToPerceptual(linearHue)
+}
+
+// rgbToHue converts RGB to hue value (0-360)
+func rgbToHue(r, g, b float64) float64 {
+	max := math.Max(r, math.Max(g, b))
+	min := math.Min(r, math.Min(g, b))
+	delta := max - min
+
+	if delta == 0 {
+		return 0
+	}
+
+	var hue float64
+	switch {
+	case max == r:
+		hue = ((g - b) / delta)
+		if g < b {
+			hue += 6
+		}
+	case max == g:
+		hue = ((b-r)/delta + 2)
+	default:
+		hue = ((r-g)/delta + 4)
+	}
+
+	return hue * 60
+}
+
+// hueToRGB converts a hue value (0-360) to a full saturation RGB color
+func hueToRGB(hue float64) (r, g, b float64) {
+	hue = math.Mod(hue, 360)
+	if hue < 0 {
+		hue += 360
+	}
+
+	c := 255.0 // full saturation
+	x := c * (1 - math.Abs(math.Mod(hue/60, 2)-1))
+	m := 0.0
+
+	var r1, g1, b1 float64
+	switch {
+	case hue < 60:
+		r1, g1, b1 = c, x, 0
+	case hue < 120:
+		r1, g1, b1 = x, c, 0
+	case hue < 180:
+		r1, g1, b1 = 0, c, x
+	case hue < 240:
+		r1, g1, b1 = 0, x, c
+	case hue < 300:
+		r1, g1, b1 = x, 0, c
+	default:
+		r1, g1, b1 = c, 0, x
+	}
+
+	return r1 + m, g1 + m, b1 + m
+}
+
+// hueToHex converts a hue value (0-360) to a hex color string
+func hueToHex(hue float64) string {
+	r, g, b := hueToRGB(hue)
+	return rgbToHex(r, g, b)
 }

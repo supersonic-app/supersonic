@@ -158,7 +158,7 @@ func (i *IconButton) updateColor() {
 	if i.disabled {
 		i.themed.ColorName = theme.ColorNameDisabled
 	} else if i.Highlighted || i.focused {
-		i.themed.ColorName = theme.ColorNamePrimary
+		i.themed.ColorName = myTheme.ColorNameActiveIconButton
 	} else if i.hovered {
 		i.themed.ColorName = myTheme.ColorNameHoveredIconButton
 	} else {

@@ -159,6 +159,10 @@ func (b *BrowsingPane) doSetPage(p Page) bool {
 		// inform page of currently playing track
 		np.OnSongChange(b.playbackManager.NowPlaying(), nil)
 	}
+	if qp, ok := p.(CanShowPlayQueue); ok {
+		// inform page of current play queue
+		qp.OnPlayQueueChange()
+	}
 	b.pageContainer.Remove(b.curPage)
 	b.pageContainer.Objects[1] = p
 	b.Refresh()

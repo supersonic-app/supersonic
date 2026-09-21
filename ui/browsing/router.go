@@ -36,11 +36,11 @@ func (r Router) CreatePage(rte controller.Route) Page {
 	_, canShare := r.App.ServerManager.Server.(mediaprovider.SupportsSharing)
 	switch rte.Page {
 	case controller.Album:
-		return NewAlbumPage(rte.Arg, &r.App.Config.AlbumPage, r.widgetPool, r.App.PlaybackManager, r.App.ServerManager.Server, r.App.ImageManager, r.Controller)
+		return NewAlbumPage(rte.Arg, &r.App.Config.AlbumPage, r.App.Config.Application.BackgroundMode, r.widgetPool, r.App.PlaybackManager, r.App.ServerManager.Server, r.App.ImageManager, r.Controller)
 	case controller.Albums:
 		return NewAlbumsPage(&r.App.Config.AlbumsPage, r.widgetPool, r.Controller, r.App.PlaybackManager, r.App.ServerManager.Server, r.App.ImageManager)
 	case controller.Artist:
-		return NewArtistPage(rte.Arg, &r.App.Config.ArtistPage, r.widgetPool, r.App.PlaybackManager, r.App.ServerManager.Server, r.App.ImageManager, r.Controller)
+		return NewArtistPage(rte.Arg, &r.App.Config.ArtistPage, r.App.Config.Application.BackgroundMode, r.widgetPool, r.App.PlaybackManager, r.App.ServerManager.Server, r.App.ImageManager, r.Controller)
 	case controller.Artists:
 		return NewArtistsPage(&r.App.Config.ArtistsPage, r.widgetPool, r.Controller, r.App.PlaybackManager, r.App.ServerManager.Server, r.App.ImageManager)
 	case controller.Favorites:
@@ -52,7 +52,7 @@ func (r Router) CreatePage(rte controller.Route) Page {
 	case controller.NowPlaying:
 		return NewNowPlayingPage(&r.App.Config.NowPlayingConfig, r.Controller, r.widgetPool, r.App.ServerManager, r.App.LyricsManager, r.App.ImageManager, r.App.PlaybackManager, r.App.ServerManager.Server, canRate, canShare, r.App.Config)
 	case controller.Playlist:
-		return NewPlaylistPage(rte.Arg, &r.App.Config.PlaylistPage, r.widgetPool, r.Controller, r.App.ServerManager, r.App.PlaybackManager, r.App.ImageManager)
+		return NewPlaylistPage(rte.Arg, &r.App.Config.PlaylistPage, r.App.Config.Application.BackgroundMode, r.widgetPool, r.Controller, r.App.ServerManager, r.App.PlaybackManager, r.App.ImageManager)
 	case controller.Playlists:
 		return NewPlaylistsPage(r.Controller, r.widgetPool, &r.App.Config.PlaylistsPage, r.App.ServerManager.Server)
 	case controller.Tracks:

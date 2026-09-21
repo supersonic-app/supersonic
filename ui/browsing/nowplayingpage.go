@@ -4,14 +4,11 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"image/color"
 	"log"
 	"net/url"
 	"slices"
 	"strings"
 
-	"github.com/boxes-ltd/imaging"
-	"github.com/cenkalti/dominantcolor"
 	"github.com/supersonic-app/supersonic/backend"
 	"github.com/supersonic-app/supersonic/backend/mediaprovider"
 	"github.com/supersonic-app/supersonic/backend/player"
@@ -24,7 +21,6 @@ import (
 	"github.com/supersonic-app/supersonic/ui/widgets"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/lang"
 	"fyne.io/fyne/v2/layout"
@@ -41,9 +37,10 @@ type NowPlayingPage struct {
 	nowPlaying    mediaprovider.MediaItem
 	nowPlayingID  string
 	curLyrics     *mediaprovider.Lyrics
-	curLyricsID   string // id of track currently shown in lyrics
-	curRelatedID  string // id of track currrently used to populate related list
-	curCoverArt   string // id of cover art currently shown in background / card
+	curLyricsID   string      // id of track currently shown in lyrics
+	curRelatedID  string      // id of track currrently used to populate related list
+	curCoverArt   string      // id of cover art currently shown in background / card
+	curCoverImage image.Image // current cover art image
 	totalTime     float64
 	lastPlayPos   float64
 	queue         []mediaprovider.MediaItem
@@ -51,18 +48,16 @@ type NowPlayingPage struct {
 	alreadyLoaded bool
 
 	// widgets for render
-	backgroundImgA     *canvas.Image
-	backgroundImgB     *canvas.Image
-	backgroundGradient *canvas.LinearGradient
-	queueList          *widgets.PlayQueueList
-	relatedList        *widgets.PlayQueueList
-	lyricsViewer       *widgets.LyricsViewer
-	card               *widgets.LargeNowPlayingCard
-	statusLabel        *widget.Label
-	tabs               *container.AppTabs
-	lyricsLoading      *widgets.LoadingDots
-	relatedLoading     *widgets.LoadingDots
-	container          *fyne.Container
+	bgWrapper      *BackgroundWrapper
+	queueList      *widgets.PlayQueueList
+	relatedList    *widgets.PlayQueueList
+	lyricsViewer   *widgets.LyricsViewer
+	card           *widgets.LargeNowPlayingCard
+	statusLabel    *widget.Label
+	tabs           *container.AppTabs
+	lyricsLoading  *widgets.LoadingDots
+	relatedLoading *widgets.LoadingDots
+	container      *fyne.Container
 
 	// cancel funcs for background fetch tasks
 	imageLoadCancel    context.CancelFunc
@@ -238,21 +233,20 @@ func (a *NowPlayingPage) CreateRenderer() fyne.WidgetRenderer {
 		} else if initialTab == 2 /*related*/ {
 			a.updateRelatedList()
 		}
-		c := theme.Color(myTheme.ColorNamePageBackground)
-		a.backgroundGradient = canvas.NewLinearGradient(c, c, 0)
-		a.backgroundImgA = canvas.NewImageFromImage(nil)
-		a.backgroundImgB = canvas.NewImageFromImage(nil)
-
 		mainContent := container.NewGridWithColumns(2,
 			container.New(paddedLayout, a.card),
 			container.New(paddedLayout,
 				util.AddHeaderBackgroundWithColorName(
 					a.tabs, myTheme.ColorNameNowPlayingPanel)))
+
+		// Wrap with background
+		a.bgWrapper = NewBackgroundWrapper(mainContent)
+		c := theme.Color(myTheme.ColorNamePageBackground)
+		a.bgWrapper.BgManager().BackgroundGradient.StartColor = c
+		a.bgWrapper.BgManager().BackgroundGradient.EndColor = c
+
 		a.container = container.NewStack(
-			a.backgroundImgA,
-			a.backgroundImgB,
-			a.backgroundGradient,
-			mainContent,
+			a.bgWrapper,
 			container.NewVBox(
 				layout.NewSpacer(),
 				container.NewBorder(nil, nil, util.NewHSpace(1), util.NewHSpace(1),
@@ -327,71 +321,16 @@ func (a *NowPlayingPage) onImageLoaded(img image.Image, err error) {
 	if err != nil {
 		log.Printf("error loading cover art: %v\n", err)
 	}
-
+	if a.bgWrapper != nil {
+		mode := "blur"
+		if !a.conf.UseBackgroundImage {
+			mode = "disabled"
+		}
+		a.bgWrapper.ApplyBackground(img, mode)
+	}
+	a.curCoverImage = img
 	fyne.Do(func() { a.card.SetCoverImage(img) })
-	if img == nil {
-		if a.conf.UseBackgroundImage {
-			fyne.Do(func() {
-				if !a.backgroundImgA.Hidden {
-					a.backgroundImgA.Hide()
-				}
-				if !a.backgroundImgB.Hidden {
-					a.backgroundImgB.Hide()
-				}
-			})
-		} else {
-			if a.backgroundGradient.StartColor != color.Transparent {
-				anim := canvas.NewColorRGBAAnimation(
-					a.backgroundGradient.StartColor, color.Transparent, myTheme.AnimationDurationMedium, func(c color.Color) {
-						a.backgroundGradient.StartColor = c
-						a.backgroundGradient.Refresh()
-					})
-				anim.Start()
-			}
-		}
-		return
-	}
 
-	if a.conf.UseBackgroundImage {
-		resized := imaging.Resize(img, 300, 0, imaging.NearestNeighbor)
-		blurred := imaging.Blur(resized, 10.0)
-		fyne.Do(func() {
-			if a.backgroundGradient.StartColor != color.Transparent {
-				a.backgroundGradient.StartColor = color.Transparent
-				a.backgroundGradient.Refresh()
-			}
-			a.backgroundImgA.Hidden = false
-			a.backgroundImgB.Hidden = false
-			a.backgroundImgA.Image = a.backgroundImgB.Image
-			a.backgroundImgB.Image = blurred
-			fyne.NewAnimation(myTheme.AnimationDurationMedium, func(f float32) {
-				a.backgroundImgA.Translucency = float64(f)
-				a.backgroundImgB.Translucency = float64(1 - f)
-				a.backgroundImgA.Refresh()
-				a.backgroundImgB.Refresh()
-			}).Start()
-		})
-	} else {
-		c := dominantcolor.Find(img)
-		if c == a.backgroundGradient.StartColor {
-			return
-		}
-		if !a.backgroundImgA.Hidden {
-			a.backgroundImgA.Hide()
-		}
-		if !a.backgroundImgB.Hidden {
-			a.backgroundImgB.Hide()
-		}
-		// Fyne animation starting is currently thread-safe,
-		// despite not being marked as such
-		// TODO: if this changes, use fyne.Do
-		anim := canvas.NewColorRGBAAnimation(
-			a.backgroundGradient.StartColor, c, myTheme.AnimationDurationMedium, func(c color.Color) {
-				a.backgroundGradient.StartColor = c
-				a.backgroundGradient.Refresh()
-			})
-		anim.Start()
-	}
 }
 
 func (a *NowPlayingPage) updateLyrics() {
@@ -469,11 +408,22 @@ func (a *NowPlayingPage) updateRelatedList() {
 	}(ctx)
 }
 
-func (a *NowPlayingPage) OnPlayQueueChange() {
-	a.Reload()
+func (a *NowPlayingPage) Reload() {
+	// Update background based on current config and cover image
+	// Guard against nil widgets during construction
+	if a.bgWrapper == nil {
+		return
+	}
+
+	mode := "blur"
+	if !a.conf.UseBackgroundImage {
+		mode = "disabled"
+	}
+	a.bgWrapper.ApplyBackground(a.curCoverImage, mode)
 }
 
-func (a *NowPlayingPage) Reload() {
+func (a *NowPlayingPage) OnPlayQueueChange() {
+	a.Reload()
 	a.card.DisableRating = !a.canRate
 	a.queueList.DisableRating = !a.canRate
 	a.queueList.DisableSharing = !a.canShare
@@ -546,13 +496,6 @@ func (a *NowPlayingPage) UnselectAll() {
 }
 
 func (a *NowPlayingPage) Refresh() {
-	if a.backgroundGradient != nil {
-		c := theme.Color(myTheme.ColorNamePageBackground)
-		if c != a.backgroundGradient.EndColor {
-			a.backgroundGradient.EndColor = c
-			a.backgroundGradient.Refresh()
-		}
-	}
 	a.BaseWidget.Refresh()
 
 	a.card.ShowAlbumYear = a.cfg.AlbumsPage.ShowYears

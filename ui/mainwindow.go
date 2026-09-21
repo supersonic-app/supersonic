@@ -88,7 +88,7 @@ func NewMainWindow(fyneApp fyne.App, appName, displayAppName, appVersion string,
 	m.Controller.ReloadFunc = m.BrowsingPane.Reload
 	m.Controller.CurPageFunc = m.BrowsingPane.CurrentPage
 	m.Controller.RefreshPageFunc = func() {
-		m.BrowsingPane.RefreshPage()
+		m.BrowsingPane.Reload()
 		m.BottomPanel.Refresh()
 	}
 	m.Controller.SelectAllPageFunc = m.BrowsingPane.SelectAll
@@ -562,12 +562,51 @@ func (m *MainWindow) addShortcuts() {
 }
 
 func (m *MainWindow) showSettingsDialog() {
-	m.Controller.ShowSettingsDialog(func() {
+
+	// Full theme reload for theme file changes
+	themeUpdateCallbk := func() {
+		m.theme.ReloadThemeFile()
+		m.theme.InvalidatePaletteCache()
 		fyne.CurrentApp().Settings().SetTheme(m.theme)
 		for _, w := range fyne.CurrentApp().Driver().AllWindows() {
 			controller.SetWindowThemeMode(w, m.theme.AppearanceMode())
 		}
-	}, m.theme.ListThemeFiles())
+		// Force refresh of all content
+		if content := m.Window.Content(); content != nil {
+			content.Refresh()
+		}
+	}
+
+	// Accent color update with debounce for smooth slider dragging
+	var debounceTimer *time.Timer
+	accentUpdateCallbk := func() {
+		m.theme.InvalidatePaletteCache()
+
+		// Debounce to ~30fps (33ms) for performance
+		// Cancel any pending refresh and schedule a new one
+		if debounceTimer != nil {
+			debounceTimer.Stop()
+		}
+		debounceTimer = time.AfterFunc(33*time.Millisecond, func() {
+			fyne.Do(func() {
+				if content := m.Window.Content(); content != nil {
+					content.Refresh()
+				}
+			})
+		})
+	}
+
+	// Finalize theme on dialog close - single SetTheme call updates all icons
+	onCloseCallbk := func() {
+		fyne.CurrentApp().Settings().SetTheme(m.theme)
+		for _, w := range fyne.CurrentApp().Driver().AllWindows() {
+			controller.SetWindowThemeMode(w, m.theme.AppearanceMode())
+		}
+		// Reload current page to apply any config changes (e.g., background image setting)
+		m.BrowsingPane.Reload()
+	}
+
+	m.Controller.ShowSettingsDialog(themeUpdateCallbk, accentUpdateCallbk, onCloseCallbk, m.theme.ListThemeFiles())
 }
 
 func (m *MainWindow) Show() {
