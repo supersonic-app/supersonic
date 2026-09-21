@@ -18,6 +18,7 @@ import (
 	"github.com/supersonic-app/supersonic/backend/player"
 	"github.com/supersonic-app/supersonic/backend/player/dlna"
 	"github.com/supersonic-app/supersonic/backend/player/mpv"
+	"github.com/supersonic-app/supersonic/backend/player/sonos"
 	"github.com/supersonic-app/supersonic/sharedutil"
 )
 
@@ -256,8 +257,23 @@ func (p *PlaybackManager) ScanRemotePlayers(ctx context.Context, fastScan bool) 
 func (p *PlaybackManager) scanRemotePlayers(ctx context.Context, waitSec int) {
 	devices, _ := device.SearchMediaRenderers(ctx, waitSec, services.AVTransport, services.RenderingControl)
 
+	// Sonos advertises each speaker separately, so collapse them into the
+	// zone groups the user actually plays to before listing anything.
+	groups, devices := sonos.Groups(ctx, devices)
+
 	coverArtPathFn := p.CoverArtPathFn
 	var discovered []RemotePlaybackDevice
+	for _, g := range groups {
+		rp := RemotePlaybackDevice{
+			Name:     g.Name,
+			URL:      g.Coordinator.URL,
+			Protocol: "Sonos",
+			new: func() (player.BasePlayer, error) {
+				return dlna.NewDLNAPlayer(g.Coordinator, coverArtPathFn)
+			},
+		}
+		discovered = append(discovered, rp)
+	}
 	for _, d := range devices {
 		rp := RemotePlaybackDevice{
 			Name:     d.FriendlyName,

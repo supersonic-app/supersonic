@@ -1,6 +1,7 @@
 package dlna
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/base64"
@@ -30,6 +31,9 @@ const (
 	playing = 1
 	paused  = 2
 )
+
+// AVTransport state reported by a device that is still loading media
+const transitioning = "TRANSITIONING"
 
 type proxyMapEntry struct {
 	key string
@@ -77,9 +81,10 @@ type DLNAPlayer struct {
 
 	// keep in order of most recently accessed at the end
 	// that way the item in proxyURLs[0] can be kicked out
-	// when adding a new URL to the proxy, since
-	// only two will need to be active at any given time
-	proxyURLs    [3]proxyMapEntry
+	// when adding a new URL to the proxy. The current and the next
+	// track each occupy a stream and a cover art entry, and the
+	// track they replaced can still be being read.
+	proxyURLs    [6]proxyMapEntry
 	proxyURLLock sync.Mutex
 
 	// If SetNextAVTransport fails (e.g. because the device
@@ -100,6 +105,7 @@ func NewDLNAPlayer(device *device.MediaRenderer, coverArtPathFn func(coverArtID 
 	retry.RetryMax = 3
 	retry.RetryWaitMin = 100 * time.Millisecond
 	retry.Logger = retryLogger{}
+	retry.HTTPClient.Transport = lengthedBodyTransport{retry.HTTPClient.Transport}
 	cli := retry.StandardClient()
 
 	avt, err := device.AVTransportClient()
@@ -119,6 +125,10 @@ func NewDLNAPlayer(device *device.MediaRenderer, coverArtPathFn func(coverArtID 
 	if _, err := avt.GetTransportInfo(ctx); err != nil {
 		return nil, fmt.Errorf("failed to connect to %s", device.FriendlyName)
 	}
+
+	// a renderer that was left muted plays silence, and Supersonic
+	// offers no way to unmute it
+	rc.SetMute(ctx, false)
 
 	return &DLNAPlayer{
 		avTransport:    avt,
@@ -202,15 +212,14 @@ func (d *DLNAPlayer) PlayFile(urlstr string, meta mediaprovider.MediaItemMetadat
 	}
 	d.pendingPlayStart = true
 	if startTime > 0 {
-		// TODO: do something better than this!!
-		time.Sleep(2 * time.Second)
+		d.awaitPlaybackStart()
 		if !d.destroyed {
 			d.sendSeekCmd(startTime)
 		}
 		d.pendingPlayStart = false
 	} else {
 		go func() {
-			time.Sleep(2 * time.Second)
+			d.awaitPlaybackStart()
 			if !d.destroyed {
 				d.syncPlaybackTime()
 			}
@@ -247,6 +256,26 @@ func (d *DLNAPlayer) playAVTransportMedia(media *avtransport.MediaItem) error {
 	return nil
 }
 
+// awaitPlaybackStart waits for the renderer to finish loading the media it
+// was handed. A seek sent while the device is still transitioning is
+// silently dropped - Sonos answers it 200 OK and keeps playing from the
+// start of the track - so commands must wait for the transition to end.
+func (d *DLNAPlayer) awaitPlaybackStart() {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(200 * time.Millisecond)
+		if d.destroyed {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		info, err := d.avTransport.GetTransportInfo(ctx)
+		cancel()
+		if err == nil && info.State != transitioning {
+			return
+		}
+	}
+}
+
 func (d *DLNAPlayer) SetNextFile(url string, meta mediaprovider.MediaItemMetadata) error {
 	if d.destroyed {
 		return nil
@@ -271,12 +300,19 @@ func (d *DLNAPlayer) SetNextFile(url string, meta mediaprovider.MediaItemMetadat
 	d.cancelRequest = cancel
 	defer cancel()
 	err := d.avTransport.SetNextAVTransportMedia(ctx, media)
-	if err != nil {
-		d.metaLock.Lock()
+
+	d.metaLock.Lock()
+	// Clearing the queue has nothing to fall back to, and succeeding
+	// here must drop any item a previous failure left behind, so that
+	// the next track change does not start playing it.
+	if err != nil && url != "" {
 		d.failedToSetNext = true
 		d.unsetNextMediaItem = media
-		d.metaLock.Unlock()
+	} else {
+		d.failedToSetNext = false
+		d.unsetNextMediaItem = nil
 	}
+	d.metaLock.Unlock()
 	return err
 }
 
@@ -551,9 +587,10 @@ func (d *DLNAPlayer) handleOnTrackChange() {
 	d.metaLock.Unlock()
 
 	if stopping {
-		d.lastStartTime = 0
-		d.stopwatch.Reset()
-		d.InvokeOnStopped()
+		// The renderer has to be told to stop, not just left to run off
+		// the end of the stream: a Sonos player that reaches the end of
+		// one resumes whatever session it was playing beforehand.
+		d.Stop(false)
 	} else {
 		d.metaLock.Lock()
 		if d.failedToSetNext {
@@ -681,6 +718,36 @@ func (d *DLNAPlayer) _updateProxyURL(key, url string) {
 	copy(d.proxyURLs[:], d.proxyURLs[1:])
 	// Insert new element at the most recent position
 	d.proxyURLs[len(d.proxyURLs)-1] = proxyMapEntry{key: key, url: url}
+}
+
+// lengthedBodyTransport buffers request bodies of unknown length so that
+// they are sent with a Content-Length instead of chunked encoding.
+// go-upnpcast builds its SOAP bodies from readers, and Sonos players
+// refuse to answer chunked control requests.
+type lengthedBodyTransport struct {
+	http.RoundTripper
+}
+
+func (t lengthedBodyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// A body of unknown length carries no ContentLength, which for a
+	// non-empty body is what makes net/http fall back to chunking.
+	if req.Body == nil || req.ContentLength > 0 {
+		return t.RoundTripper.RoundTrip(req)
+	}
+
+	body, err := io.ReadAll(req.Body)
+	req.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	req = req.Clone(req.Context())
+	req.ContentLength = int64(len(body))
+	req.Body = io.NopCloser(bytes.NewReader(body))
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(body)), nil
+	}
+	return t.RoundTripper.RoundTrip(req)
 }
 
 // httpClientHandler wraps an http.Client to implement services.RequestHandler
