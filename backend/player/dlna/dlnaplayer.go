@@ -70,6 +70,7 @@ type DLNAPlayer struct {
 	proxyServer *http.Server
 	proxyActive atomic.Bool
 	localIP     string
+	localIPHint string
 	proxyPort   int
 
 	pendingSeek     bool
@@ -96,6 +97,16 @@ type DLNAPlayer struct {
 }
 
 func NewDLNAPlayer(device *device.MediaRenderer, coverArtPathFn func(coverArtID string) (string, error)) (*DLNAPlayer, error) {
+	return newDLNAPlayer(device, coverArtPathFn, "")
+}
+
+// NewDLNAPlayerWithLocalIP uses a caller-selected LAN address for the local
+// media proxy when the host has multiple active interfaces.
+func NewDLNAPlayerWithLocalIP(device *device.MediaRenderer, coverArtPathFn func(coverArtID string) (string, error), localIP string) (*DLNAPlayer, error) {
+	return newDLNAPlayer(device, coverArtPathFn, localIP)
+}
+
+func newDLNAPlayer(device *device.MediaRenderer, coverArtPathFn func(coverArtID string) (string, error), localIP string) (*DLNAPlayer, error) {
 	retry := retryablehttp.NewClient()
 	retry.RetryMax = 3
 	retry.RetryWaitMin = 100 * time.Millisecond
@@ -125,6 +136,7 @@ func NewDLNAPlayer(device *device.MediaRenderer, coverArtPathFn func(coverArtID 
 		renderControl:  rc,
 		resetChan:      make(chan time.Duration),
 		coverArtPathFn: coverArtPathFn,
+		localIPHint:    localIP,
 	}, nil
 }
 
@@ -475,9 +487,13 @@ func (d *DLNAPlayer) ensureSetupProxy() error {
 	}
 
 	var err error
-	d.localIP, err = util.GetLocalIP()
-	if err != nil {
-		return err
+	if d.localIPHint != "" {
+		d.localIP = d.localIPHint
+	} else {
+		d.localIP, err = util.GetLocalIP()
+		if err != nil {
+			return err
+		}
 	}
 
 	listener, err := net.Listen("tcp", ":0")
@@ -485,6 +501,7 @@ func (d *DLNAPlayer) ensureSetupProxy() error {
 		return err
 	}
 	d.proxyPort = listener.Addr().(*net.TCPAddr).Port
+	log.Printf("DLNA: serving local media proxy at %s:%d", d.localIP, d.proxyPort)
 
 	d.proxyServer = &http.Server{
 		Handler: http.HandlerFunc(d.handleRequest),

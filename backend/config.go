@@ -61,6 +61,9 @@ type AppConfig struct {
 	ShowSidebar                 bool
 	SidebarWidthFraction        float64
 	SidebarTab                  string
+	UseDefaultSSDPInterface     bool
+	SSDPInterfaceName           string
+	DLNARendererURLs            string
 
 	PreventScreensaverOnNowPlayingPage bool
 
@@ -136,7 +139,7 @@ type LocalPlaybackConfig struct {
 	InMemoryCacheSizeMB   int
 	Volume                int
 	EqualizerEnabled      bool
-	EqualizerType         string    // "ISO10Band" or "ISO15Band"
+	EqualizerType         string // "ISO10Band" or "ISO15Band"
 	EqualizerPreamp       float64
 	GraphicEqualizerBands []float64
 	ActiveEQPresetName    string // Name of currently selected EQ preset
@@ -224,6 +227,7 @@ func DefaultConfig(appVersionTag string) *Config {
 			RequestTimeoutSeconds:              15,
 			EnableOSMediaPlayerAPIs:            true,
 			SidebarWidthFraction:               0.8,
+			UseDefaultSSDPInterface:            true,
 			PreventScreensaverOnNowPlayingPage: false,
 		},
 		AlbumPage: AlbumPageConfig{
@@ -319,6 +323,11 @@ func ReadConfigFile(filepath, appVersionTag string) (*Config, error) {
 		return nil, err
 	}
 	c.migrateDeprecatedSettings()
+	// Older configs do not contain the SSDP settings. An empty interface name
+	// cannot represent an explicit selection, so preserve the default behavior.
+	if c.Application.SSDPInterfaceName == "" {
+		c.Application.UseDefaultSSDPInterface = true
+	}
 
 	// Backfill Subsonic to empty ServerType fields
 	// for updating configs created before multiple MediaProviders were added
