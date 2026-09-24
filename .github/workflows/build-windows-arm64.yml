@@ -1,0 +1,75 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: Build Windows ARM64
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: windows-11-arm
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+    - uses: msys2/setup-msys2@v2
+      with:
+        msystem: CLANGARM64
+        path-type: inherit
+        update: true
+        install: >-
+          make
+          wget
+          zip
+          p7zip
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Install Dependencies
+      run: >
+        pacman -Syu &&
+        pacman --noconfirm -S mingw-w64-clang-aarch64-toolchain mingw-w64-clang-aarch64-mpv
+
+    - name: Install Fyne tool
+      run: go install fyne.io/fyne/v2/cmd/fyne@latest
+
+    - name: Package
+      run: make package_windows_arm64
+
+    - name: Download mpv dll
+      run: >
+        wget https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20250810/mpv-dev-aarch64-20250810-git-01b7edc.7z &&
+        7z x mpv-dev-aarch64-20250810-git-01b7edc.7z
+
+    - name: Download smtc dll
+      run: >
+        wget https://github.com/supersonic-app/smtc-dll/releases/download/v0.1.2/SMTC_arm64.dll &&
+        mv SMTC_arm64.dll SMTC.dll
+
+    - name: Generate zip bundle
+      run: zip Supersonic-windows.zip Supersonic.exe libmpv-2.dll SMTC.dll
+
+    - name: Generate installer
+      uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
+      with:
+        path: win_inno_installscript.iss
+
+    - name: Upload zip
+      uses: actions/upload-artifact@v4
+      with:
+        name: Supersonic_windows_x64.zip
+        path: Supersonic-windows.zip
+
+    - name: Upload installer
+      uses: actions/upload-artifact@v4
+      with:
+        name: Supersonic_windows_x64_installer.exe
+        path: Output/supersonic-installer.exe
