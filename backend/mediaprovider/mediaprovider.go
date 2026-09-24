@@ -330,6 +330,14 @@ type JukeboxProvider interface {
 
 	// Sets the volume of the jukebox player (0-100)
 	JukeboxSetVolume(vol int) error
+
+	// JukeboxSupported reports whether the connected server actually
+	// supports jukebox playback for the current user. Servers exposing a
+	// Subsonic-compatible API don't universally support (or allow per-user)
+	// jukebox mode, and the Subsonic API has no capability-negotiation
+	// mechanism for it, so implementations must determine this by probing
+	// the server (typically once, with the result cached for the session).
+	JukeboxSupported() bool
 }
 
 type JukeboxStatus struct {

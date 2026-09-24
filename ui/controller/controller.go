@@ -166,14 +166,20 @@ func (m *Controller) ShowCastMenu(onPendingPlayerChange func()) {
 	for _, d := range devices {
 		_d := d
 		isCurrent := rp != nil && _d.URL == rp.URL
-		item := fyne.NewMenuItem(d.Name, func() {
+		label := d.Name
+		if d.Protocol == backend.JukeboxProtocol {
+			// unlike DLNA device names (fetched from the network device
+			// itself), the Jukebox device name is a fixed app-level label
+			label = lang.L("Jukebox")
+		}
+		item := fyne.NewMenuItem(label, func() {
 			if isCurrent {
 				return // no-op.
 			}
 			onPendingPlayerChange()
 			go func() {
 				if err := m.App.PlaybackManager.SetRemotePlayer(&_d); err != nil {
-					fyne.Do(func() { m.ToastProvider.ShowErrorToast("Failed to connect to " + _d.Name) })
+					fyne.Do(func() { m.ToastProvider.ShowErrorToast("Failed to connect to " + label) })
 				}
 			}()
 		})

@@ -2,6 +2,7 @@ package subsonic
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 
 	"github.com/supersonic-app/supersonic/backend/mediaprovider"
@@ -66,4 +67,21 @@ func (s *subsonicMediaProvider) JukeboxGetStatus() (*mediaprovider.JukeboxStatus
 		Playing:         stat.Playing,
 		PositionSeconds: float64(stat.Position),
 	}, nil
+}
+
+// JukeboxSupported probes the server once (a side-effect-free "status" call)
+// and caches the result for the lifetime of this provider. The Subsonic API
+// doesn't advertise jukebox support via getOpenSubsonicExtensions or
+// elsewhere, and not every server allows it (it may be disabled globally, or
+// per-user via Settings > Users > Jukebox Role), so the only reliable way to
+// know is to try it.
+func (s *subsonicMediaProvider) JukeboxSupported() bool {
+	s.jukeboxSupportOnce.Do(func() {
+		_, err := s.client.JukeboxControl("status", nil)
+		s.jukeboxSupported = err == nil
+		if err != nil {
+			log.Printf("jukebox: server does not support jukebox playback (or it's not permitted for this user): %v", err)
+		}
+	})
+	return s.jukeboxSupported
 }
