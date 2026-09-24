@@ -46,19 +46,20 @@ var (
 )
 
 type App struct {
-	Config          *Config
-	ServerManager   *ServerManager
-	LyricsManager   *LyricsManager
-	ImageManager    *ImageManager
-	AudioCache      *AudioCache
-	AutoEQManager   *AutoEQManager
-	EQPresetManager *EQPresetManager
-	PlaybackManager *PlaybackManager
-	LocalPlayer     *mpv.Player
-	UpdateChecker   UpdateChecker
-	MPRISHandler    *MPRISHandler
-	WinSMTC         *windows.SMTC
-	ipcServer       ipc.IPCServer
+	Config            *Config
+	ServerManager     *ServerManager
+	LyricsManager     *LyricsManager
+	ArtistInfoManager *ArtistInfoManager
+	ImageManager      *ImageManager
+	AudioCache        *AudioCache
+	AutoEQManager     *AutoEQManager
+	EQPresetManager   *EQPresetManager
+	PlaybackManager   *PlaybackManager
+	LocalPlayer       *mpv.Player
+	UpdateChecker     UpdateChecker
+	MPRISHandler      *MPRISHandler
+	WinSMTC           *windows.SMTC
+	ipcServer         ipc.IPCServer
 
 	// UI callbacks to be set in main
 	OnReactivate  func()
@@ -178,6 +179,13 @@ func StartupApp(appName, displayAppName, appVersion, appVersionTag, latestReleas
 		fetch = NewLrcLibFetcher(a.cacheDir, a.Config.Application.CustomLrcLibUrl, timeout)
 	}
 	a.LyricsManager = NewLyricsManager(a.ServerManager, fetch)
+
+	var aiFetcher *ArtistInfoFetcher
+	if a.Config.Application.EnableExternalArtistInfo {
+		aiFetcher = NewArtistInfoFetcher(a.Config.Application.Language)
+	}
+	a.ArtistInfoManager = NewArtistInfoManager(a.ServerManager, aiFetcher)
+
 	a.EQPresetManager = NewEQPresetManager(confDir)
 
 	// Initialize AutoEQ manager
@@ -294,6 +302,7 @@ func (a *App) ClearCaches() {
 		}
 	}
 	a.ImageManager.ClearInMemoryCache()
+	a.ArtistInfoManager.ClearCache()
 }
 
 func checkPortablePath() string {

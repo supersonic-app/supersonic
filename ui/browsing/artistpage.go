@@ -40,6 +40,7 @@ type artistPageState struct {
 	cfg   *backend.ArtistPageConfig
 	pm    *backend.PlaybackManager
 	mp    mediaprovider.MediaProvider
+	aim   *backend.ArtistInfoManager
 	im    *backend.ImageManager
 	contr *controller.Controller
 
@@ -77,7 +78,7 @@ const (
 	viewAllTracks   = "All Tracks"
 )
 
-func NewArtistPage(artistID string, cfg *backend.ArtistPageConfig, pool *util.WidgetPool, pm *backend.PlaybackManager, mp mediaprovider.MediaProvider, im *backend.ImageManager, contr *controller.Controller) *ArtistPage {
+func NewArtistPage(artistID string, cfg *backend.ArtistPageConfig, pool *util.WidgetPool, pm *backend.PlaybackManager, mp mediaprovider.MediaProvider, aim *backend.ArtistInfoManager, im *backend.ImageManager, contr *controller.Controller) *ArtistPage {
 	activeView := 0
 
 	switch cfg.InitialView {
@@ -95,6 +96,7 @@ func NewArtistPage(artistID string, cfg *backend.ArtistPageConfig, pool *util.Wi
 		pool:       pool,
 		pm:         pm,
 		mp:         mp,
+		aim:        aim,
 		im:         im,
 		contr:      contr,
 		activeView: activeView,
@@ -330,10 +332,11 @@ func (a *ArtistPage) load() {
 		a.onViewChange(a.activeView)
 	})
 
-	info, err := a.mp.GetArtistInfo(a.artistID)
-	if err != nil {
-		log.Printf("Failed to get artist info: %s", err.Error())
+	artistName := ""
+	if artist != nil {
+		artistName = artist.Name
 	}
+	info, _ := a.aim.GetArtistInfo(a.artistID, artistName)
 	fyne.Do(func() {
 		if !a.disposed {
 			a.header.UpdateInfo(info)

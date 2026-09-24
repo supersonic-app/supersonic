@@ -801,6 +801,7 @@ func (s *SettingsDialog) createAdvancedTab() *container.TabItem {
 	multi := widget.NewCheckWithData(lang.L("Allow multiple app instances"), binding.BindBool(&s.config.Application.AllowMultiInstance))
 	update := widget.NewCheckWithData(lang.L("Automatically check for updates"), binding.BindBool(&s.config.Application.EnableAutoUpdateChecker))
 	lrclib := widget.NewCheckWithData(lang.L("Enable LrcLib lyrics fetcher"), binding.BindBool(&s.config.Application.EnableLrcLib))
+	extArtistInfo := widget.NewCheckWithData(lang.L("Enable Deezer/Wikipedia artist info"), binding.BindBool(&s.config.Application.EnableExternalArtistInfo))
 
 	threeDigitValidator := func(text, selText string, r rune) bool {
 		return unicode.IsDigit(r) && len(text)-len(selText) < 3
@@ -842,6 +843,7 @@ func (s *SettingsDialog) createAdvancedTab() *container.TabItem {
 		multi,
 		update,
 		lrclib,
+		extArtistInfo,
 		osMediaAPIs,
 		preventScreensaver,
 		imgCacheCfg,

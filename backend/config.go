@@ -50,6 +50,7 @@ type AppConfig struct {
 	ShowTrackChangeNotification bool
 	EnableLrcLib                bool
 	CustomLrcLibUrl             string
+	EnableExternalArtistInfo    bool
 	EnablePasswordStorage       bool
 	SkipSSLVerify               bool // Deprecated: use per-server SkipSSLVerify. Drop in future version.
 	EnqueueBatchSize            int
@@ -136,7 +137,7 @@ type LocalPlaybackConfig struct {
 	InMemoryCacheSizeMB   int
 	Volume                int
 	EqualizerEnabled      bool
-	EqualizerType         string    // "ISO10Band" or "ISO15Band"
+	EqualizerType         string // "ISO10Band" or "ISO15Band"
 	EqualizerPreamp       float64
 	GraphicEqualizerBands []float64
 	ActiveEQPresetName    string // Name of currently selected EQ preset
@@ -217,6 +218,7 @@ func DefaultConfig(appVersionTag string) *Config {
 			SaveQueueToServer:                  false,
 			ShowTrackChangeNotification:        false,
 			EnableLrcLib:                       true,
+			EnableExternalArtistInfo:           true,
 			EnablePasswordStorage:              true,
 			EnqueueBatchSize:                   100,
 			Language:                           "auto",
