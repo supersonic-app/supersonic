@@ -27,12 +27,13 @@ type LrcLibFetcher struct {
 	cachePath       string
 	customLrcLibUrl string
 	timeout         time.Duration
+	httpClient      *http.Client
 }
 
-func NewLrcLibFetcher(baseCacheDir string, customLrcLibUrl string, timeout time.Duration) *LrcLibFetcher {
+func NewLrcLibFetcher(baseCacheDir string, customLrcLibUrl string, timeout time.Duration, httpClient *http.Client) *LrcLibFetcher {
 	cachePath := filepath.Join(baseCacheDir, lrclibCacheFolder)
 	configdir.MakePath(cachePath)
-	return &LrcLibFetcher{cachePath: cachePath, customLrcLibUrl: customLrcLibUrl, timeout: timeout}
+	return &LrcLibFetcher{cachePath: cachePath, customLrcLibUrl: customLrcLibUrl, timeout: timeout, httpClient: httpClient}
 }
 
 func (l *LrcLibFetcher) FetchLrcLibLyrics(name, artist, album string, durationSecs int) (*mediaprovider.Lyrics, error) {
@@ -103,7 +104,7 @@ func (l *LrcLibFetcher) fetchFromServer(name, artist, album string, durationSecs
 	q.Add("duration", strconv.Itoa(durationSecs))
 	req.URL.RawQuery = q.Encode()
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := l.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

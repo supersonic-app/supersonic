@@ -397,7 +397,7 @@ func (s *subsonicMediaProvider) CanShareArtists() bool {
 	return false
 }
 
-func (s *subsonicMediaProvider) DownloadTrack(trackID string) (io.Reader, error) {
+func (s *subsonicMediaProvider) DownloadTrack(trackID string) (io.ReadCloser, error) {
 	return s.client.Download(trackID)
 }
 

@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"image"
 	"image/jpeg"
+	"io"
 	"io/fs"
 	"log"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -17,7 +19,6 @@ import (
 	"strings"
 	"time"
 
-	"fyne.io/fyne/v2"
 	"github.com/20after4/configdir"
 	"github.com/google/uuid"
 )
@@ -36,6 +37,7 @@ const (
 // and a larger on-disc cache of images that is periodically re-requested from the server.
 type ImageManager struct {
 	s              *ServerManager
+	httpClient     *http.Client
 	baseCacheDir   string
 	thumbnailCache ImageCache
 
@@ -50,13 +52,14 @@ type ImageManager struct {
 }
 
 // NewImageManager returns a new ImageManager.
-func NewImageManager(ctx context.Context, s *ServerManager, baseCacheDir string) *ImageManager {
+func NewImageManager(ctx context.Context, s *ServerManager, baseCacheDir string, httpClient *http.Client) *ImageManager {
 	if err := configdir.MakePath(baseCacheDir); err != nil {
 		log.Println("failed to create album cover cache dir")
 		baseCacheDir = ""
 	}
 	i := &ImageManager{
 		s:            s,
+		httpClient:   httpClient,
 		baseCacheDir: baseCacheDir,
 		thumbnailCache: ImageCache{
 			MinSize:    24,
@@ -217,17 +220,18 @@ func (i *ImageManager) ensureArtistCoverCacheDir() string {
 
 func (i *ImageManager) fetchRemoteArtistImage(url string) (image.Image, error) {
 	i.serverFetchSema <- struct{}{} // acquire
-	res, err := fyne.LoadResourceFromURLString(url)
-	<-i.serverFetchSema // release
-
-	if err == nil {
-		im, _, err := image.Decode(bytes.NewReader(res.Content()))
-		if err == nil {
-			return im, nil
-		}
+	defer func() { <-i.serverFetchSema }()
+	resp, err := i.httpClient.Get(url)
+	if err != nil {
 		return nil, err
 	}
-	return nil, err
+	defer resp.Body.Close()
+	res, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	im, _, err := image.Decode(bytes.NewReader(res))
+	return im, err
 }
 
 func (i *ImageManager) fetchAndCacheCoverFromDiskOrServer(ctx context.Context, coverID string, ttl time.Duration, cb func(image.Image, error)) (image.Image, error) {

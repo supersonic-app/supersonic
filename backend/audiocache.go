@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -21,6 +22,7 @@ type AudioCache struct {
 	s            *ServerManager
 	rootCtx      context.Context
 	baseCacheDir string
+	httpClient   *http.Client
 
 	entries map[string]*cacheEntry
 }
@@ -40,7 +42,7 @@ type AudioCacheRequest struct {
 
 // NewAudioCache initializes an AudioCache using the given context, server manager,
 // and local filesystem directory for storing audio files.
-func NewAudioCache(ctx context.Context, s *ServerManager, baseCacheDir string) (*AudioCache, error) {
+func NewAudioCache(ctx context.Context, s *ServerManager, baseCacheDir string, httpClient *http.Client) (*AudioCache, error) {
 	if err := configdir.MakePath(baseCacheDir); err != nil {
 		return nil, errors.New("failed to create audio cache dir")
 	}
@@ -48,6 +50,7 @@ func NewAudioCache(ctx context.Context, s *ServerManager, baseCacheDir string) (
 		s:            s,
 		rootCtx:      ctx,
 		baseCacheDir: baseCacheDir,
+		httpClient:   httpClient,
 		entries:      make(map[string]*cacheEntry),
 	}, nil
 }
@@ -128,7 +131,7 @@ func (a *AudioCache) cacheFile(id, dlURL string) {
 		ctx, cancel := context.WithCancel(a.rootCtx)
 		a.entries[id] = &cacheEntry{cancel: cancel}
 		go func() {
-			ok, err := sharedutil.DownloadFileWithContext(ctx, dlURL, a.pathForID(id))
+			ok, err := sharedutil.DownloadFileWithContext(ctx, a.httpClient, dlURL, a.pathForID(id))
 			if ok {
 				a.mutex.Lock()
 				if e, ok := a.entries[id]; ok {
