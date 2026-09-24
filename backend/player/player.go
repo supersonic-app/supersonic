@@ -39,6 +39,11 @@ type BasePlayer interface {
 	OnTrackChange(func())
 }
 
+// PlaybackErrorPlayer optionally reports unexpected playback failures.
+type PlaybackErrorPlayer interface {
+	OnPlaybackError(func(error))
+}
+
 type ReplayGainPlayer interface {
 	SetReplayGainOptions(ReplayGainOptions) error
 }
@@ -88,11 +93,12 @@ func (r ReplayGainMode) String() string {
 }
 
 type BasePlayerCallbackImpl struct {
-	onPaused      func()
-	onStopped     func()
-	onPlaying     func()
-	onSeek        func()
-	onTrackChange func()
+	onPaused        func()
+	onStopped       func()
+	onPlaying       func()
+	onSeek          func()
+	onTrackChange   func()
+	onPlaybackError func(error)
 }
 
 // Sets a callback which is invoked when the player transitions to the Paused state.
@@ -122,6 +128,11 @@ func (p *BasePlayerCallbackImpl) OnTrackChange(cb func()) {
 	p.onTrackChange = cb
 }
 
+// Registers a callback which is invoked when playback fails unexpectedly.
+func (p *BasePlayerCallbackImpl) OnPlaybackError(cb func(error)) {
+	p.onPlaybackError = cb
+}
+
 func (p *BasePlayerCallbackImpl) InvokeOnPaused() {
 	if p.onPaused != nil {
 		p.onPaused()
@@ -149,5 +160,11 @@ func (p *BasePlayerCallbackImpl) InvokeOnSeek() {
 func (p *BasePlayerCallbackImpl) InvokeOnTrackChange() {
 	if p.onTrackChange != nil {
 		p.onTrackChange()
+	}
+}
+
+func (p *BasePlayerCallbackImpl) InvokeOnPlaybackError(err error) {
+	if p.onPlaybackError != nil {
+		p.onPlaybackError(err)
 	}
 }
