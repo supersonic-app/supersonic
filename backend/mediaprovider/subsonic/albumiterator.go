@@ -68,7 +68,7 @@ func (s *subsonicMediaProvider) IterateAlbums(sortOrder string, filter mediaprov
 			}
 			return s.client.GetAlbumList2("byGenre", params)
 		}
-		return helpers.NewAlbumIterator(makeFetchFn(fetchFn), modifiedFilter, s.prefetchCoverCB)
+		return helpers.NewAlbumIterator(makeFetchFn(fetchFn), modifiedFilter)
 	}
 	if sortOrder == "" && filterOptions.ExcludeUnfavorited {
 		modifiedFilter := filter.Clone()
@@ -88,7 +88,7 @@ func (s *subsonicMediaProvider) IterateAlbums(sortOrder string, filter mediaprov
 	case mediaprovider.AlbumSortFrequentlyPlayed:
 		return s.baseIterFromSimpleSortOrder("frequent", filter)
 	case mediaprovider.AlbumSortRandom:
-		return s.newRandomIter(filter, s.prefetchCoverCB)
+		return s.newRandomIter(filter)
 	case mediaprovider.AlbumSortTitleAZ:
 		return s.baseIterFromSimpleSortOrder("alphabeticalByName", filter)
 	case mediaprovider.AlbumSortArtistAZ:
@@ -101,7 +101,7 @@ func (s *subsonicMediaProvider) IterateAlbums(sortOrder string, filter mediaprov
 			}
 			return s.client.GetAlbumList2("byYear", params)
 		}
-		return helpers.NewAlbumIterator(makeFetchFn(fetchFn), filter, s.prefetchCoverCB)
+		return helpers.NewAlbumIterator(makeFetchFn(fetchFn), filter)
 	case mediaprovider.AlbumSortYearDescending:
 		fetchFn := func(offset, limit int) ([]*subsonic.AlbumID3, error) {
 			params := map[string]string{"fromYear": "3000", "toYear": "0", "offset": strconv.Itoa(offset), "limit": strconv.Itoa(limit)}
@@ -110,7 +110,7 @@ func (s *subsonicMediaProvider) IterateAlbums(sortOrder string, filter mediaprov
 			}
 			return s.client.GetAlbumList2("byYear", params)
 		}
-		return helpers.NewAlbumIterator(makeFetchFn(fetchFn), filter, s.prefetchCoverCB)
+		return helpers.NewAlbumIterator(makeFetchFn(fetchFn), filter)
 	default:
 		log.Printf("Undefined album sort order: %s", sortOrder)
 		return nil
@@ -118,13 +118,12 @@ func (s *subsonicMediaProvider) IterateAlbums(sortOrder string, filter mediaprov
 }
 
 func (s *subsonicMediaProvider) SearchAlbums(searchQuery string, filter mediaprovider.AlbumFilter) mediaprovider.AlbumIterator {
-	return s.newSearchAlbumIter(searchQuery, filter, s.prefetchCoverCB)
+	return s.newSearchAlbumIter(searchQuery, filter)
 }
 
 type searchAlbumIter struct {
 	searchIterBase
 
-	prefetchCB    func(string)
 	filter        mediaprovider.AlbumFilter
 	prefetched    []*subsonic.AlbumID3
 	prefetchedPos int
@@ -132,14 +131,16 @@ type searchAlbumIter struct {
 	done          bool
 }
 
-func (s *subsonicMediaProvider) newSearchAlbumIter(query string, filter mediaprovider.AlbumFilter, cb func(string)) *searchAlbumIter {
+func (s *subsonicMediaProvider) newSearchAlbumIter(query string, filter mediaprovider.AlbumFilter) *searchAlbumIter {
 	return &searchAlbumIter{
 		searchIterBase: searchIterBase{
 			query:         query,
 			s:             s.client,
 			musicFolderId: s.currentLibraryID,
+			albumCount:    50, // default page size for dedicated search
+			artistCount:   0,
+			songCount:     0,
 		},
-		prefetchCB: cb,
 		filter:     filter,
 		albumIDset: make(map[string]bool),
 	}
@@ -152,7 +153,7 @@ func (s *searchAlbumIter) Next() *mediaprovider.Album {
 
 	// prefetch more search results from server
 	if s.prefetched == nil {
-		results := s.searchIterBase.fetchResults()
+		results := s.searchIterBase.fetchHybridResults("album")
 		if results == nil {
 			s.done = true
 			s.albumIDset = nil
@@ -163,25 +164,29 @@ func (s *searchAlbumIter) Next() *mediaprovider.Album {
 		s.addNewAlbums(results.Album)
 		s.albumOffset += len(results.Album)
 
-		// add results from artists search
+		// add results from artists search (fallback discovery)
 		for _, artist := range results.Artist {
 			artist, err := s.s.GetArtist(artist.ID)
-			if err != nil || artist == nil {
+			if err != nil {
 				log.Printf("error fetching artist: %s", err.Error())
+			} else if artist == nil {
+				log.Printf("artist not found")
 			} else {
 				s.addNewAlbums(artist.Album)
 			}
 		}
 		s.artistOffset += len(results.Artist)
 
-		// add results from songs search
+		// add results from songs search (fallback discovery)
 		for _, song := range results.Song {
 			if song.AlbumID == "" {
 				continue
 			}
 			album, err := s.s.GetAlbum(song.AlbumID)
-			if err != nil || album == nil {
+			if err != nil {
 				log.Printf("error fetching album: %s", err.Error())
+			} else if album == nil {
+				log.Printf("album not found")
 			} else {
 				s.addNewAlbums([]*subsonic.AlbumID3{album})
 			}
@@ -213,14 +218,11 @@ func (s *searchAlbumIter) addNewAlbums(al []*subsonic.AlbumID3) {
 			continue
 		}
 		s.prefetched = append(s.prefetched, album)
-		if s.prefetchCB != nil {
-			go s.prefetchCB(album.CoverArt)
-		}
 		s.albumIDset[album.ID] = true
 	}
 }
 
-func (s *subsonicMediaProvider) newRandomIter(filter mediaprovider.AlbumFilter, cb func(string)) mediaprovider.AlbumIterator {
+func (s *subsonicMediaProvider) newRandomIter(filter mediaprovider.AlbumFilter) mediaprovider.AlbumIterator {
 	return helpers.NewRandomAlbumIter(
 		s.fetchFnFromStandardSort("newest"),
 		makeFetchFn(func(offset, limit int) ([]*subsonic.AlbumID3, error) {
@@ -233,11 +235,11 @@ func (s *subsonicMediaProvider) newRandomIter(filter mediaprovider.AlbumFilter, 
 			}
 			return s.client.GetAlbumList2("random", args)
 		}),
-		filter, s.prefetchCoverCB)
+		filter)
 }
 
 func (s *subsonicMediaProvider) baseIterFromSimpleSortOrder(sort string, filter mediaprovider.AlbumFilter) mediaprovider.AlbumIterator {
-	return helpers.NewAlbumIterator(s.fetchFnFromStandardSort(sort), filter, s.prefetchCoverCB)
+	return helpers.NewAlbumIterator(s.fetchFnFromStandardSort(sort), filter)
 }
 
 func (s *subsonicMediaProvider) fetchFnFromStandardSort(sort string) helpers.AlbumFetchFn {
