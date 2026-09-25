@@ -298,10 +298,14 @@ func (a *NowPlayingPage) OnSongChange(song mediaprovider.MediaItem, lastScrobble
 		a.imageLoadCancel()
 	}
 	a.nowPlayingID = sharedutil.MediaItemIDOrEmptyStr(song)
+
+	a.queueList.SetNowPlayingIndex(a.pm.NowPlayingIndex(),
+		a.cfg.Application.HidePlayedQueueTracks)
 	a.queueList.SetNowPlaying(a.nowPlayingID)
 	if !a.alreadyLoaded {
-		a.queueList.ScrollToNowPlaying()
 		a.alreadyLoaded = true
+		// Defer scroll to after first render since scroller isn't ready yet
+		fyne.Do(func() { a.queueList.ScrollToNowPlaying() })
 	}
 	a.relatedList.SetNowPlaying(a.nowPlayingID)
 
@@ -480,8 +484,16 @@ func (a *NowPlayingPage) Reload() {
 	a.relatedList.DisableRating = !a.canRate
 	a.relatedList.DisableSharing = !a.canShare
 
+	if !a.alreadyLoaded {
+		// the queue list widget may have been recycled from the pool
+		// with a stale scroll position - reset it before populating
+		a.queueList.ScrollToOffset(0)
+	}
+
 	a.queue = a.pm.GetActivePlayQueue()
-	a.queueList.SetItems(a.queue)
+	a.queueList.SetQueue(a.queue, a.pm.NowPlayingIndex(),
+		a.cfg.Application.HidePlayedQueueTracks)
+	a.queueList.SetNowPlaying(a.nowPlayingID)
 	a.totalTime = 0.0
 	for _, tr := range a.queue {
 		a.totalTime += tr.Metadata().Duration.Seconds()

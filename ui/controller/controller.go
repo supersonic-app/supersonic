@@ -50,17 +50,19 @@ type Controller struct {
 	MainWindow fyne.Window
 
 	// dependencies injected from MainWindow
-	NavHandler          NavigationHandler
-	CurPageFunc         CurPageFunc
-	ReloadFunc          func()
-	RefreshPageFunc     func()
-	SelectAllPageFunc   func()
-	UnselectAllPageFunc func()
-	ToastProvider       ToastProvider
+	NavHandler                  NavigationHandler
+	CurPageFunc                 CurPageFunc
+	ReloadFunc                  func()
+	RefreshPageFunc             func()
+	SelectAllPageFunc           func()
+	UnselectAllPageFunc         func()
+	HidePlayedTracksChangedFunc func()
+	ToastProvider               ToastProvider
 
 	popUpQueue         *widget.PopUp
 	popUpQueueList     *widgets.PlayQueueList
 	pauseAfterCurrent  *widget.Check
+	hidePlayedTracks   *widget.Check
 	popUpQueueLastUsed int64
 	escapablePopUp     fyne.CanvasObject
 	haveModal          bool
@@ -76,7 +78,7 @@ func New(app *backend.App, appVersion string, mainWindow fyne.Window) *Controlle
 	c.initVisualizations()
 	c.App.PlaybackManager.OnQueueChange(util.FyneDoFunc(func() {
 		if c.popUpQueue != nil {
-			c.popUpQueueList.SetItems(c.App.PlaybackManager.GetActivePlayQueue())
+			c.applyPopUpQueueItems()
 		}
 	}))
 	c.App.PlaybackManager.OnSongChange(func(track mediaprovider.MediaItem, _ *mediaprovider.Track) {
@@ -84,6 +86,9 @@ func New(app *backend.App, appVersion string, mainWindow fyne.Window) *Controlle
 			if c.popUpQueue == nil {
 				return
 			}
+			c.popUpQueueList.SetNowPlayingIndex(
+				c.App.PlaybackManager.NowPlayingIndex(),
+				c.App.Config.Application.HidePlayedQueueTracks)
 			if track == nil {
 				c.popUpQueueList.SetNowPlaying("")
 			} else {
@@ -92,6 +97,29 @@ func New(app *backend.App, appVersion string, mainWindow fyne.Window) *Controlle
 		})
 	})
 	return c
+}
+
+// onHidePlayedTracksChanged updates every view that displays the play queue
+// after the hide-played-tracks setting was toggled.
+func (m *Controller) onHidePlayedTracksChanged() {
+	hide := m.App.Config.Application.HidePlayedQueueTracks
+	if m.popUpQueueList != nil {
+		m.popUpQueueList.SetHidePlayed(hide)
+		// the popup may be visible while the setting is toggled in the
+		// settings dialog, so keep its checkbox in sync
+		m.hidePlayedTracks.SetChecked(hide)
+	}
+	if m.HidePlayedTracksChangedFunc != nil {
+		m.HidePlayedTracksChangedFunc()
+	}
+}
+
+// applyPopUpQueueItems refreshes the popup queue from the playback manager.
+func (m *Controller) applyPopUpQueueItems() {
+	m.popUpQueueList.SetQueue(
+		m.App.PlaybackManager.GetActivePlayQueue(),
+		m.App.PlaybackManager.NowPlayingIndex(),
+		m.App.Config.Application.HidePlayedQueueTracks)
 }
 
 func (m *Controller) SelectAll() {
@@ -193,7 +221,7 @@ func (m *Controller) ShowPopUpPlayQueue() {
 	if m.popUpQueue == nil {
 		m.popUpQueueList = widgets.NewPlayQueueList(m.App.ImageManager, false)
 		m.popUpQueueList.Reorderable = true
-		m.popUpQueueList.SetItems(m.App.PlaybackManager.GetActivePlayQueue())
+		m.applyPopUpQueueItems()
 		m.ConnectPlayQueuelistActions(m.popUpQueueList)
 
 		title := widget.NewRichTextWithText(lang.L("Play Queue"))
@@ -202,7 +230,15 @@ func (m *Controller) ShowPopUpPlayQueue() {
 		m.pauseAfterCurrent = widget.NewCheck(lang.L("Pause after current track"), func(b bool) {
 			m.App.PlaybackManager.SetPauseAfterCurrent(b)
 		})
-		bottomRow := container.NewHBox(layout.NewSpacer(), m.pauseAfterCurrent)
+		m.hidePlayedTracks = widget.NewCheck(lang.L("Hide played tracks"), func(b bool) {
+			if b == m.App.Config.Application.HidePlayedQueueTracks {
+				return
+			}
+			m.App.Config.Application.HidePlayedQueueTracks = b
+			m.onHidePlayedTracksChanged()
+			m.App.SaveConfigFile()
+		})
+		bottomRow := container.NewHBox(layout.NewSpacer(), m.hidePlayedTracks, m.pauseAfterCurrent)
 		ctr := container.NewBorder(title, bottomRow, nil, nil,
 			container.NewPadded(m.popUpQueueList),
 		)
@@ -233,6 +269,7 @@ func (m *Controller) ShowPopUpPlayQueue() {
 						m.popUpQueue = nil
 						m.popUpQueueList = nil
 						m.pauseAfterCurrent = nil
+						m.hidePlayedTracks = nil
 						m.popUpQueueLastUsed = 0
 						t.Stop()
 						return
@@ -244,6 +281,9 @@ func (m *Controller) ShowPopUpPlayQueue() {
 	m.popUpQueueLastUsed = time.Now().UnixMilli()
 	popUpQueueList := m.popUpQueueList
 	pop := m.popUpQueue
+
+	// refresh in case the queue changed while the popup was hidden
+	m.applyPopUpQueueItems()
 
 	npID := ""
 	if np := m.App.PlaybackManager.NowPlaying(); np != nil {
@@ -262,6 +302,7 @@ func (m *Controller) ShowPopUpPlayQueue() {
 	pop.Resize(size)
 	popUpQueueList.ScrollToNowPlaying() // must come after resize
 	m.pauseAfterCurrent.SetChecked(m.App.PlaybackManager.IsPauseAfterCurrent())
+	m.hidePlayedTracks.SetChecked(m.App.Config.Application.HidePlayedQueueTracks)
 	pop.ShowAtPosition(fyne.NewPos(
 		canvasSize.Width-size.Width-10,
 		canvasSize.Height-size.Height-100,
@@ -376,6 +417,7 @@ func (c *Controller) ShowSettingsDialog(themeUpdateCallbk func(), themeFiles map
 	}
 	dlg.OnPageNeedsRefresh = c.RefreshPageFunc
 	dlg.OnClearCaches = func() { go c.App.ClearCaches() }
+	dlg.OnHidePlayedQueueTracksChanged = c.onHidePlayedTracksChanged
 	pop := widget.NewModalPopUp(container.NewPadded(dlg), c.MainWindow.Canvas())
 	fynetooltip.AddPopUpToolTipLayer(pop)
 	dlg.OnDismiss = func() {

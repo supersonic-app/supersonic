@@ -198,7 +198,8 @@ func (m *Controller) ConnectArtistGridActions(grid *widgets.GridView) {
 
 func (c *Controller) ConnectPlayQueuelistActions(list *widgets.PlayQueueList) {
 	list.OnReorderItems = func(idxs []int, insertPos int) {
-		newTracks := sharedutil.ReorderItems(list.Items(), idxs, insertPos)
+		// idxs and insertPos index the full queue, not the displayed items
+		newTracks := sharedutil.ReorderItems(list.Queue(), idxs, insertPos)
 		c.App.PlaybackManager.UpdatePlayQueue(newTracks)
 	}
 	list.OnDownload = c.ShowDownloadDialog
