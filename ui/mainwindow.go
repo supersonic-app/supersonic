@@ -74,7 +74,8 @@ func NewMainWindow(fyneApp fyne.App, appName, displayAppName, appVersion string,
 	}
 	m.Controller = controller.New(app, appVersion, m.Window)
 	m.BrowsingPane = browsing.NewBrowsingPane(app.PlaybackManager, m.Controller, func() { m.Router.NavigateTo(m.StartupPage()) })
-	m.Sidebar = NewSidebar(m.Controller, m.App.PlaybackManager, m.App.ImageManager, m.App.LyricsManager, &m.App.Config.Application)
+	m.Sidebar = NewSidebar(m.Controller, m.App.PlaybackManager, m.App.ImageManager, m.App.LyricsManager)
+	m.Sidebar.SetHidePlayedTracks(m.App.Config.Application.HidePlayedQueueTracks)
 	if m.App.Config.Application.SidebarTab == "Lyrics" {
 		m.Sidebar.SetSelectedIndex(1)
 	}
@@ -94,7 +95,7 @@ func NewMainWindow(fyneApp fyne.App, appName, displayAppName, appVersion string,
 	m.Controller.SelectAllPageFunc = m.BrowsingPane.SelectAll
 	m.Controller.UnselectAllPageFunc = m.BrowsingPane.UnselectAll
 	m.Controller.HidePlayedTracksChangedFunc = func() {
-		m.Sidebar.OnHidePlayedTracksChanged()
+		m.Sidebar.SetHidePlayedTracks(m.App.Config.Application.HidePlayedQueueTracks)
 		m.BrowsingPane.RefreshPlayQueue()
 	}
 	m.Controller.ToastProvider = m.ToastOverlay

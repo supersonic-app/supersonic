@@ -86,9 +86,7 @@ func New(app *backend.App, appVersion string, mainWindow fyne.Window) *Controlle
 			if c.popUpQueue == nil {
 				return
 			}
-			c.popUpQueueList.SetNowPlayingIndex(
-				c.App.PlaybackManager.NowPlayingIndex(),
-				c.App.Config.Application.HidePlayedQueueTracks)
+			c.popUpQueueList.SetNowPlayingIndex(c.App.PlaybackManager.NowPlayingIndex())
 			if track == nil {
 				c.popUpQueueList.SetNowPlaying("")
 			} else {
@@ -118,8 +116,7 @@ func (m *Controller) onHidePlayedTracksChanged() {
 func (m *Controller) applyPopUpQueueItems() {
 	m.popUpQueueList.SetQueue(
 		m.App.PlaybackManager.GetActivePlayQueue(),
-		m.App.PlaybackManager.NowPlayingIndex(),
-		m.App.Config.Application.HidePlayedQueueTracks)
+		m.App.PlaybackManager.NowPlayingIndex())
 }
 
 func (m *Controller) SelectAll() {
@@ -221,6 +218,7 @@ func (m *Controller) ShowPopUpPlayQueue() {
 	if m.popUpQueue == nil {
 		m.popUpQueueList = widgets.NewPlayQueueList(m.App.ImageManager, false)
 		m.popUpQueueList.Reorderable = true
+		m.popUpQueueList.SetHidePlayed(m.App.Config.Application.HidePlayedQueueTracks)
 		m.applyPopUpQueueItems()
 		m.ConnectPlayQueuelistActions(m.popUpQueueList)
 
@@ -281,9 +279,6 @@ func (m *Controller) ShowPopUpPlayQueue() {
 	m.popUpQueueLastUsed = time.Now().UnixMilli()
 	popUpQueueList := m.popUpQueueList
 	pop := m.popUpQueue
-
-	// refresh in case the queue changed while the popup was hidden
-	m.applyPopUpQueueItems()
 
 	npID := ""
 	if np := m.App.PlaybackManager.NowPlaying(); np != nil {

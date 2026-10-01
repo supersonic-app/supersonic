@@ -299,8 +299,7 @@ func (a *NowPlayingPage) OnSongChange(song mediaprovider.MediaItem, lastScrobble
 	}
 	a.nowPlayingID = sharedutil.MediaItemIDOrEmptyStr(song)
 
-	a.queueList.SetNowPlayingIndex(a.pm.NowPlayingIndex(),
-		a.cfg.Application.HidePlayedQueueTracks)
+	a.queueList.SetNowPlayingIndex(a.pm.NowPlayingIndex())
 	a.queueList.SetNowPlaying(a.nowPlayingID)
 	if !a.alreadyLoaded {
 		a.alreadyLoaded = true
@@ -491,8 +490,8 @@ func (a *NowPlayingPage) Reload() {
 	}
 
 	a.queue = a.pm.GetActivePlayQueue()
-	a.queueList.SetQueue(a.queue, a.pm.NowPlayingIndex(),
-		a.cfg.Application.HidePlayedQueueTracks)
+	a.queueList.SetHidePlayed(a.cfg.Application.HidePlayedQueueTracks)
+	a.queueList.SetQueue(a.queue, a.pm.NowPlayingIndex())
 	a.queueList.SetNowPlaying(a.nowPlayingID)
 	a.totalTime = 0.0
 	for _, tr := range a.queue {
