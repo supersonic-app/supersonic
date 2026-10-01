@@ -79,16 +79,21 @@ func (s *Sidebar) SetSelectedIndex(idx int) {
 	s.tabs.SelectIndex(idx)
 }
 
-func (s *Sidebar) SetQueueTracks(items []mediaprovider.MediaItem) {
-	s.queueList.SetItems(items)
+func (s *Sidebar) SetQueueTracks(items []mediaprovider.MediaItem, nowPlayingIdx int) {
+	s.queueList.SetQueue(items, nowPlayingIdx)
 }
 
-func (s *Sidebar) SetNowPlaying(item mediaprovider.MediaItem) {
+func (s *Sidebar) SetHidePlayedTracks(hide bool) {
+	s.queueList.SetHidePlayed(hide)
+}
+
+func (s *Sidebar) SetNowPlaying(item mediaprovider.MediaItem, nowPlayingIdx int) {
 	s.nowPlaying = item
 	id := ""
 	if item != nil {
 		id = item.Metadata().ID
 	}
+	s.queueList.SetNowPlayingIndex(nowPlayingIdx)
 	s.queueList.SetNowPlaying(id)
 	s.nowPlayingID = id
 	if s.tabs.SelectedIndex() == 1 /*lyrics*/ {
