@@ -151,6 +151,10 @@ func StartupApp(appName, displayAppName, appVersion, appVersionTag, latestReleas
 	}
 
 	a.ServerManager = NewServerManager(appName, appVersion, a.Config, !portableMode && a.Config.Application.EnablePasswordStorage)
+	a.ServerManager.OnServerConnected(func(_ *ServerConfig) {
+		certFile, keyFile, caFile := a.ServerManager.ClientCertFiles()
+		a.LocalPlayer.SetClientCert(certFile, keyFile, caFile)
+	})
 	a.ImageManager = NewImageManager(a.bgrndCtx, a.ServerManager, cacheDir)
 	if a.Config.Playback.UseWaveformSeekbar {
 		ac, err := NewAudioCache(a.bgrndCtx, a.ServerManager, filepath.Join(cacheDir, audioCacheSubdir))
@@ -611,6 +615,7 @@ func (a *App) Shutdown() {
 	}
 	a.cancel()
 	a.LocalPlayer.Destroy()
+	a.ServerManager.CleanupClientCertFiles()
 }
 
 func (a *App) SavePlayQueueIfEnabled() {

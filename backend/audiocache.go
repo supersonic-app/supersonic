@@ -128,7 +128,7 @@ func (a *AudioCache) cacheFile(id, dlURL string) {
 		ctx, cancel := context.WithCancel(a.rootCtx)
 		a.entries[id] = &cacheEntry{cancel: cancel}
 		go func() {
-			ok, err := sharedutil.DownloadFileWithContext(ctx, dlURL, a.pathForID(id))
+			ok, err := sharedutil.DownloadFileWithContext(ctx, a.s.HTTPClient(), dlURL, a.pathForID(id))
 			if ok {
 				a.mutex.Lock()
 				if e, ok := a.entries[id]; ok {

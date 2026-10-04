@@ -79,6 +79,12 @@ type Player struct {
 
 	fadePauseCancel context.CancelFunc
 	bgCancel        context.CancelFunc
+
+	// Client certificate (mutual TLS) files passed to mpv per loaded file.
+	certMu         sync.RWMutex
+	clientCertFile string
+	clientKeyFile  string
+	clientCAFile   string
 }
 
 // Returns a new player.
@@ -96,6 +102,33 @@ func NewWithClientName(c string) *Player {
 	}
 	p.fileLoadedSig = sync.NewCond(&p.fileLoadedLock)
 	return p
+}
+
+// SetClientCert configures the client certificate files used for mutual TLS
+// playback. Pass empty strings to clear. The files are applied to each
+// subsequently loaded stream as file-local mpv options.
+func (p *Player) SetClientCert(certFile, keyFile, caFile string) {
+	p.certMu.Lock()
+	p.clientCertFile = certFile
+	p.clientKeyFile = keyFile
+	p.clientCAFile = caFile
+	p.certMu.Unlock()
+}
+
+// loadOptions returns the comma-separated mpv per-file options carrying the
+// configured client certificate, or an empty string if none is set.
+func (p *Player) loadOptions() string {
+	p.certMu.RLock()
+	defer p.certMu.RUnlock()
+	var opts []string
+	if p.clientCertFile != "" {
+		opts = append(opts, "tls-cert-file="+p.clientCertFile)
+		opts = append(opts, "tls-key-file="+p.clientKeyFile)
+	}
+	if p.clientCAFile != "" {
+		opts = append(opts, "tls-ca-file="+p.clientCAFile)
+	}
+	return strings.Join(opts, ",")
 }
 
 // Initializes the Player and makes it ready for playback.
@@ -152,7 +185,11 @@ func (p *Player) PlayFile(url string, _ mediaprovider.MediaItemMetadata, startTi
 	if !p.initialized {
 		return ErrUnitialized
 	}
-	err := p.mpv.Command([]string{"loadfile", url, "replace"})
+	args := []string{"loadfile", url, "replace"}
+	if opts := p.loadOptions(); opts != "" {
+		args = append(args, "-1", opts)
+	}
+	err := p.mpv.Command(args)
 	if err != nil {
 		return err
 	}
@@ -204,7 +241,11 @@ func (p *Player) SetNextFile(url string, _ mediaprovider.MediaItemMetadata) erro
 		return nil
 	}
 
-	err := p.mpv.Command([]string{"loadfile", url, "append"})
+	args := []string{"loadfile", url, "append"}
+	if opts := p.loadOptions(); opts != "" {
+		args = append(args, "-1", opts)
+	}
+	err := p.mpv.Command(args)
 	if err == nil {
 		p.lenPlaylist++
 	}
