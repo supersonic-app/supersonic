@@ -376,7 +376,10 @@ func (s *ServerManager) buildTLSConfig(connection ServerConnection, serverID uui
 		if err != nil {
 			return nil, fmt.Errorf("reading CA certificate %q: %w", connection.ClientCertCAFile, err)
 		}
-		pool := x509.NewCertPool()
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
 		if !pool.AppendCertsFromPEM(pemBytes) {
 			return nil, fmt.Errorf("no certificates found in CA file %q", connection.ClientCertCAFile)
 		}
@@ -515,7 +518,7 @@ func (s *ServerManager) CleanupClientCertFiles() {
 
 // HTTPClient returns the HTTP client most recently built for a server
 // connection, or nil if none has been built. Used by download/cache paths so
-// they honour the same client certificate and TLS settings as the API clients.
+// they honor the same client certificate and TLS settings as the API clients.
 func (s *ServerManager) HTTPClient() *http.Client {
 	s.certMu.Lock()
 	defer s.certMu.Unlock()
