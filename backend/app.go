@@ -461,6 +461,7 @@ func (a *App) setupMPRIS(mprisAppName string) {
 		a.ImageManager.GetCoverThumbnail(id) // ensure image is cached locally
 		return a.ImageManager.GetCoverArtUrl(id)
 	}
+	a.MPRISHandler.lm = a.LyricsManager
 	a.MPRISHandler.OnRaise = func() error { a.callOnReactivate(); return nil }
 	a.MPRISHandler.OnQuit = a.callOnExit
 	a.MPRISHandler.Start()

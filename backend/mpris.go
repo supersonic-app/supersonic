@@ -3,7 +3,9 @@ package backend
 import (
 	"encoding/base32"
 	"errors"
+	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/quarckster/go-mpris-server/pkg/events"
@@ -41,7 +43,9 @@ type MPRISHandler struct {
 	connErr      error
 	playerName   string
 	curTrackPath string // empty for no track
+	curLyrics    string // can contain LRC or plain text
 	pm           *PlaybackManager
+	lm           *LyricsManager
 	s            *server.Server
 	evt          *events.EventHandler
 
@@ -63,10 +67,19 @@ func NewMPRISHandler(playerName string, pm *PlaybackManager) *MPRISHandler {
 		}
 	})
 	pm.OnSongChange(func(tr mediaprovider.MediaItem, _ *mediaprovider.Track) {
+		m.curLyrics = "" // clear lyrics immediately when track changes
+
 		if tr == nil {
 			m.curTrackPath = ""
 		} else {
 			m.curTrackPath = dbusTrackIDPrefix + encodeTrackId(tr.Metadata().ID)
+
+			track := tr.(*mediaprovider.Track)
+			if track == nil {
+				return
+			}
+
+			fetchLyrics(m, track)
 		}
 		if m.connErr == nil {
 			m.evt.Player.OnTitle()
@@ -326,6 +339,7 @@ func (m *MPRISHandler) Metadata() (types.Metadata, error) {
 		UseCount:    playCount,
 		ArtUrl:      artURL,
 		Genre:       genres,
+		AsText:      m.curLyrics,
 	}
 	if year != 0 {
 		mprisMeta.ContentCreated = strconv.Itoa(year)
@@ -389,4 +403,38 @@ func secondsToMicroseconds(s float64) types.Microseconds {
 func encodeTrackId(id string) string {
 	data := []byte(id)
 	return base32.StdEncoding.WithPadding('0').EncodeToString(data)
+}
+
+func fetchLyrics(m *MPRISHandler, track *mediaprovider.Track) {
+	m.lm.FetchLyricsAsync(track, func(id string, lyrics *mediaprovider.Lyrics) {
+		if id != track.Metadata().ID {
+			return
+		}
+
+		if lyrics == nil {
+			return
+		}
+
+		var b strings.Builder
+		if lyrics.Synced {
+			for _, line := range lyrics.Lines {
+				startCentis := int(line.Start * 100)
+				minutes := startCentis / 6000
+				secs := (startCentis / 100) % 60
+				hundredths := startCentis % 100
+				fmt.Fprintf(&b, "[%02d:%02d.%02d]%s\n", minutes, secs, hundredths, line.Text)
+			}
+		} else {
+			for _, line := range lyrics.Lines {
+				b.WriteString(line.Text)
+				b.WriteString("\n")
+			}
+		}
+		m.curLyrics = b.String()
+
+		// Send a `org.freedesktop.DBus.Properties.PropertiesChanged` signal
+		if m.connErr == nil {
+			m.evt.Player.OnTitle()
+		}
+	})
 }
