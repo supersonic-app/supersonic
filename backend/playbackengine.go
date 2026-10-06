@@ -278,6 +278,7 @@ func (p *playbackEngine) getPlayQueueLength() int {
 
 func (p *playbackEngine) clearPlayQueue() {
 	p.checkScrobble()
+	p.dropPendingTrack()
 	p.player.Stop(false)
 	p.nowPlayingIdx = -1
 	p.playQueue = nil
@@ -538,12 +539,23 @@ func (p *playbackEngine) IsSeeking() bool {
 }
 
 func (p *playbackEngine) Stop() error {
-	if p.pendingLoadPaused {
-		p.pendingLoadPaused = false
-		p.pendingLoadStartTime = 0
-		p.handleOnStopped()
-	}
+	p.dropPendingTrack()
 	return p.player.Stop(false)
+}
+
+// dropPendingTrack abandons a track that was loaded paused, or carried
+// over from a previous player, without ever being started on the current
+// player. The player was never given it, so stopping the player alone
+// would not report anything, and PlaybackStatus would keep reporting the
+// track as paused.
+func (p *playbackEngine) dropPendingTrack() {
+	if !p.pendingLoadPaused && !p.pendingPlayerChange {
+		return
+	}
+	p.pendingLoadPaused = false
+	p.pendingLoadStartTime = 0
+	p.pendingPlayerChange = false
+	p.handleOnStopped()
 }
 
 func (p *playbackEngine) SetPauseAfterCurrent(pauseAfterCurrent bool) {
@@ -991,6 +1003,14 @@ func (p *playbackEngine) nextPlayingIndex() int {
 }
 
 func (p *playbackEngine) setTrack(idx int, next bool, startTime float64) error {
+	if !next {
+		// Whatever is started now supersedes the track a player change
+		// left waiting for the user to press play. If the flag outlived
+		// that, PlaybackStatus would keep reporting the old player's
+		// paused position instead of the new player's progress.
+		p.pendingPlayerChange = false
+	}
+
 	var item mediaprovider.MediaItem
 	var url string
 	if idx >= 0 {

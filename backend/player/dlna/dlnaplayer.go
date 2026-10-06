@@ -1,9 +1,11 @@
 package dlna
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/base64"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,6 +34,24 @@ const (
 	paused  = 2
 )
 
+// AVTransport state reported by a device that is still loading media
+const transitioning = "TRANSITIONING"
+
+// controlRequestTimeout bounds a control request to the renderer as a
+// whole, retries included.
+const controlRequestTimeout = 10 * time.Second
+
+const (
+	avTransportServiceType = "urn:schemas-upnp-org:service:AVTransport:1"
+
+	getPositionInfoBody = `<?xml version="1.0" encoding="utf-8"?>` +
+		`<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"` +
+		` s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body>` +
+		`<u:GetPositionInfo xmlns:u="` + avTransportServiceType + `">` +
+		`<InstanceID>0</InstanceID></u:GetPositionInfo>` +
+		`</s:Body></s:Envelope>`
+)
+
 type proxyMapEntry struct {
 	key string
 	url string
@@ -43,6 +64,7 @@ type DLNAPlayer struct {
 	cancelRequest context.CancelFunc
 
 	avTransport   *avtransport.Client
+	avtRequests   *httpClientHandler
 	renderControl *renderingcontrol.Client
 
 	// coverArtPathFn returns a local filesystem path to the cached cover
@@ -77,9 +99,10 @@ type DLNAPlayer struct {
 
 	// keep in order of most recently accessed at the end
 	// that way the item in proxyURLs[0] can be kicked out
-	// when adding a new URL to the proxy, since
-	// only two will need to be active at any given time
-	proxyURLs    [3]proxyMapEntry
+	// when adding a new URL to the proxy. The current and the next
+	// track each occupy a stream and a cover art entry, and the
+	// track they replaced can still be being read.
+	proxyURLs    [6]proxyMapEntry
 	proxyURLLock sync.Mutex
 
 	// If SetNextAVTransport fails (e.g. because the device
@@ -90,23 +113,23 @@ type DLNAPlayer struct {
 	failedToSetNext    bool
 	unsetNextMediaItem *avtransport.MediaItem
 
-	timerActive atomic.Bool
-	timer       *time.Timer
-	resetChan   chan (time.Duration)
+	// timer fires handleOnTrackChange when the current track is due to
+	// end. timerGen tells a firing that has already been rescheduled or
+	// cancelled apart from a live one.
+	timerLock sync.Mutex
+	timer     *time.Timer
+	timerGen  uint64
 }
 
 func NewDLNAPlayer(device *device.MediaRenderer, coverArtPathFn func(coverArtID string) (string, error)) (*DLNAPlayer, error) {
-	retry := retryablehttp.NewClient()
-	retry.RetryMax = 3
-	retry.RetryWaitMin = 100 * time.Millisecond
-	retry.Logger = retryLogger{}
-	cli := retry.StandardClient()
+	cli := newControlClient(controlRequestTimeout)
 
 	avt, err := device.AVTransportClient()
 	if err != nil {
 		return nil, err
 	}
-	avt.RequestHandler = httpClientHandler{cli}
+	avtRequests := &httpClientHandler{client: cli}
+	avt.RequestHandler = avtRequests
 	rc, err := device.RenderingControlClient()
 	if err != nil {
 		return nil, err
@@ -120,10 +143,14 @@ func NewDLNAPlayer(device *device.MediaRenderer, coverArtPathFn func(coverArtID 
 		return nil, fmt.Errorf("failed to connect to %s", device.FriendlyName)
 	}
 
+	// a renderer that was left muted plays silence, and Supersonic
+	// offers no way to unmute it
+	rc.SetMute(ctx, false)
+
 	return &DLNAPlayer{
 		avTransport:    avt,
+		avtRequests:    avtRequests,
 		renderControl:  rc,
-		resetChan:      make(chan time.Duration),
 		coverArtPathFn: coverArtPathFn,
 	}, nil
 }
@@ -200,24 +227,23 @@ func (d *DLNAPlayer) PlayFile(urlstr string, meta mediaprovider.MediaItemMetadat
 	if err := d.playAVTransportMedia(&media); err != nil {
 		return err
 	}
+	d.state = playing
 	d.pendingPlayStart = true
 	if startTime > 0 {
-		// TODO: do something better than this!!
-		time.Sleep(2 * time.Second)
+		d.awaitPlaybackStart()
 		if !d.destroyed {
 			d.sendSeekCmd(startTime)
 		}
 		d.pendingPlayStart = false
 	} else {
 		go func() {
-			time.Sleep(2 * time.Second)
+			d.awaitPlaybackStart()
 			if !d.destroyed {
 				d.syncPlaybackTime()
 			}
 			d.pendingPlayStart = false
 		}()
 	}
-	d.state = playing
 	remainingDur := meta.Duration - time.Duration(startTime)*time.Second
 	d.setTrackChangeTimer(remainingDur)
 	d.stopwatch.Reset()
@@ -247,6 +273,26 @@ func (d *DLNAPlayer) playAVTransportMedia(media *avtransport.MediaItem) error {
 	return nil
 }
 
+// awaitPlaybackStart waits for the renderer to finish loading the media it
+// was handed. A seek sent while the device is still transitioning is
+// silently dropped - Sonos answers it 200 OK and keeps playing from the
+// start of the track - so commands must wait for the transition to end.
+func (d *DLNAPlayer) awaitPlaybackStart() {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(200 * time.Millisecond)
+		if d.destroyed {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		info, err := d.avTransport.GetTransportInfo(ctx)
+		cancel()
+		if err == nil && info.State != transitioning {
+			return
+		}
+	}
+}
+
 func (d *DLNAPlayer) SetNextFile(url string, meta mediaprovider.MediaItemMetadata) error {
 	if d.destroyed {
 		return nil
@@ -271,12 +317,19 @@ func (d *DLNAPlayer) SetNextFile(url string, meta mediaprovider.MediaItemMetadat
 	d.cancelRequest = cancel
 	defer cancel()
 	err := d.avTransport.SetNextAVTransportMedia(ctx, media)
-	if err != nil {
-		d.metaLock.Lock()
+
+	d.metaLock.Lock()
+	// Clearing the queue has nothing to fall back to, and succeeding
+	// here must drop any item a previous failure left behind, so that
+	// the next track change does not start playing it.
+	if err != nil && url != "" {
 		d.failedToSetNext = true
 		d.unsetNextMediaItem = media
-		d.metaLock.Unlock()
+	} else {
+		d.failedToSetNext = false
+		d.unsetNextMediaItem = nil
 	}
+	d.metaLock.Unlock()
 	return err
 }
 
@@ -456,17 +509,93 @@ func (d *DLNAPlayer) Destroy() {
 	}
 }
 
+// syncPlaybackTime aligns the local clock with the position the renderer
+// reports. The clock only drifts while playing, and re-arming the track
+// change timer for a paused or stopped player would have it switch tracks
+// on its own, so a sync that finds the player in any other state is
+// dropped.
 func (d *DLNAPlayer) syncPlaybackTime() {
-	start := time.Now()
-	if pos, err := d.avTransport.GetPositionInfo(context.Background()); err == nil {
-		d.lastStartTime = int(pos.RelTime.Seconds() + (time.Since(start) / 2).Seconds())
-		d.stopwatch.Reset()
-		if d.state == playing {
-			d.stopwatch.Start()
-		}
-		d.setTrackChangeTimer(d.curTrackMeta.Duration - time.Duration(d.lastStartTime)*time.Second)
-		d.InvokeOnSeek()
+	if d.state != playing {
+		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	pos, err := d.positionInfo(ctx)
+	if err != nil || d.state != playing {
+		return
+	}
+	d.lastStartTime = int((pos + time.Since(start)/2).Seconds())
+	d.stopwatch.Reset()
+	d.stopwatch.Start()
+
+	d.metaLock.Lock()
+	duration := d.curTrackMeta.Duration
+	d.metaLock.Unlock()
+	if duration > 0 {
+		// zero would cancel the timer, but a renderer already at the end
+		// of the track is about to change
+		remaining := duration - time.Duration(d.lastStartTime)*time.Second
+		d.setTrackChangeTimer(max(remaining, time.Millisecond))
+	}
+	d.InvokeOnSeek()
+}
+
+// positionInfo asks the renderer how far into the current track it is.
+//
+// go-upnpcast has a GetPositionInfo, but it cannot parse the clock values
+// any renderer returns (it maps the number of colons to the format off by
+// one), so the query has to be made here.
+func (d *DLNAPlayer) positionInfo(ctx context.Context) (time.Duration, error) {
+	controlURL := d.avtRequests.controlURL
+	if controlURL == "" {
+		return 0, errors.New("AVTransport control URL not known yet")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, controlURL,
+		strings.NewReader(getPositionInfoBody))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", `text/xml; charset="utf-8"`)
+	req.Header.Set("SOAPAction", `"`+avTransportServiceType+`#GetPositionInfo"`)
+	req.Header.Set("Connection", "close")
+
+	resp, err := d.avtRequests.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("GetPositionInfo returned %s", resp.Status)
+	}
+
+	var envelope struct {
+		RelTime string `xml:"Body>GetPositionInfoResponse>RelTime"`
+	}
+	if err := xml.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+		return 0, err
+	}
+	return parseClockTime(envelope.RelTime)
+}
+
+// parseClockTime parses the H:MM:SS form AVTransport reports positions
+// in. The hours are not zero-padded by every renderer (Sonos reports
+// 0:02:35), and a fraction of a second may follow, which is dropped since
+// the clock is only kept to the second anyway.
+func parseClockTime(s string) (time.Duration, error) {
+	parts := strings.Split(s, ":")
+	if len(parts) != 3 {
+		return 0, fmt.Errorf("invalid clock time %q", s)
+	}
+	secs, _, _ := strings.Cut(parts[2], ".")
+	h, errH := strconv.Atoi(parts[0])
+	m, errM := strconv.Atoi(parts[1])
+	sec, errS := strconv.Atoi(secs)
+	if errH != nil || errM != nil || errS != nil || h < 0 || m < 0 || sec < 0 {
+		return 0, fmt.Errorf("invalid clock time %q", s)
+	}
+	return time.Duration(h)*time.Hour + time.Duration(m)*time.Minute + time.Duration(sec)*time.Second, nil
 }
 
 func (d *DLNAPlayer) ensureSetupProxy() error {
@@ -494,49 +623,41 @@ func (d *DLNAPlayer) ensureSetupProxy() error {
 	return nil
 }
 
+// setTrackChangeTimer schedules the switch to the next track for when the
+// current one is due to end, replacing any switch already scheduled. A
+// duration of zero only cancels, which is also what a track of unknown
+// length wants; a negative one is due now.
 func (d *DLNAPlayer) setTrackChangeTimer(dur time.Duration) {
-	if d.timerActive.Swap(true) {
-		// was active
-		d.resetChan <- dur
-		return
+	d.timerLock.Lock()
+	defer d.timerLock.Unlock()
+
+	if d.timer != nil {
+		d.timer.Stop()
+		d.timer = nil
 	}
+	d.timerGen++
 	if dur == 0 {
-		d.timerActive.Store(false)
 		return
 	}
 
-	d.timer = time.NewTimer(dur)
-	go func() {
-		for {
-			select {
-			case dur := <-d.resetChan:
-				if dur == 0 {
-					d.timerActive.Store(false)
-					if !d.timer.Stop() {
-						select {
-						case <-d.timer.C:
-						default:
-						}
-					}
-					d.timer = nil
-					return
-				}
-				// reset the timer
-				if !d.timer.Stop() {
-					select {
-					case <-d.timer.C:
-					default:
-					}
-				}
-				d.timer.Reset(dur)
-			case <-d.timer.C:
-				d.timerActive.Store(false)
-				d.timer = nil
-				d.handleOnTrackChange()
-				return
-			}
-		}
-	}()
+	gen := d.timerGen
+	d.timer = time.AfterFunc(dur, func() { d.trackChangeTimerFired(gen) })
+}
+
+// trackChangeTimerFired is the track change timer's callback. A firing
+// that lost the race with a reschedule or a cancel - a pause landing just
+// as the track ends - is no longer wanted, and is told apart by the
+// generation it was scheduled with.
+func (d *DLNAPlayer) trackChangeTimerFired(gen uint64) {
+	d.timerLock.Lock()
+	live := gen == d.timerGen
+	if live {
+		d.timer = nil
+	}
+	d.timerLock.Unlock()
+	if live {
+		d.handleOnTrackChange()
+	}
 }
 
 func (d *DLNAPlayer) handleOnTrackChange() {
@@ -551,9 +672,10 @@ func (d *DLNAPlayer) handleOnTrackChange() {
 	d.metaLock.Unlock()
 
 	if stopping {
-		d.lastStartTime = 0
-		d.stopwatch.Reset()
-		d.InvokeOnStopped()
+		// The renderer has to be told to stop, not just left to run off
+		// the end of the stream: a Sonos player that reaches the end of
+		// one resumes whatever session it was playing beforehand.
+		d.Stop(false)
 	} else {
 		d.metaLock.Lock()
 		if d.failedToSetNext {
@@ -683,12 +805,70 @@ func (d *DLNAPlayer) _updateProxyURL(key, url string) {
 	d.proxyURLs[len(d.proxyURLs)-1] = proxyMapEntry{key: key, url: url}
 }
 
-// httpClientHandler wraps an http.Client to implement services.RequestHandler
-type httpClientHandler struct {
-	client *http.Client
+// newControlClient returns the client control requests are sent with. It
+// retries transient failures, sends bodies with a Content-Length, and
+// gives up on a request that has taken longer than timeout, retries
+// included. A renderer that stops answering - Sonos does that for
+// requests it dislikes rather than reject them - would otherwise hang
+// the caller, and the command queue behind it, for good.
+func newControlClient(timeout time.Duration) *http.Client {
+	retry := retryablehttp.NewClient()
+	retry.RetryMax = 3
+	retry.RetryWaitMin = 100 * time.Millisecond
+	retry.Logger = retryLogger{}
+	retry.HTTPClient.Transport = lengthedBodyTransport{retry.HTTPClient.Transport}
+
+	// The timeout goes on the outer client so that it wraps the retrying
+	// round tripper: it becomes a deadline on the request's context,
+	// which ends the retry loop as well as the attempt in flight.
+	cli := retry.StandardClient()
+	cli.Timeout = timeout
+	return cli
 }
 
-func (h httpClientHandler) Do(req *http.Request) (*http.Response, error) {
+// lengthedBodyTransport buffers request bodies of unknown length so that
+// they are sent with a Content-Length instead of chunked encoding.
+// go-upnpcast builds its SOAP bodies from readers, and Sonos players
+// refuse to answer chunked control requests.
+type lengthedBodyTransport struct {
+	http.RoundTripper
+}
+
+func (t lengthedBodyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// A body of unknown length carries no ContentLength, which for a
+	// non-empty body is what makes net/http fall back to chunking.
+	if req.Body == nil || req.ContentLength > 0 {
+		return t.RoundTripper.RoundTrip(req)
+	}
+
+	body, err := io.ReadAll(req.Body)
+	req.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	req = req.Clone(req.Context())
+	req.ContentLength = int64(len(body))
+	req.Body = io.NopCloser(bytes.NewReader(body))
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(body)), nil
+	}
+	return t.RoundTripper.RoundTrip(req)
+}
+
+// httpClientHandler wraps an http.Client to implement services.RequestHandler.
+// It also notes the AVTransport control URL the requests are addressed to,
+// which go-upnpcast does not expose and positionInfo needs. NewDLNAPlayer
+// pings the renderer through it, so the URL is known before any playback.
+type httpClientHandler struct {
+	client     *http.Client
+	controlURL string
+}
+
+func (h *httpClientHandler) Do(req *http.Request) (*http.Response, error) {
+	if h.controlURL == "" {
+		h.controlURL = req.URL.String()
+	}
 	return h.client.Do(req)
 }
 
