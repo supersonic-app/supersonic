@@ -1182,7 +1182,13 @@ func (p *playbackEngine) startPollTimePos() {
 				pollingTick.Stop()
 				return
 			case <-pollingTick.C:
-				p.handleTimePosUpdate(false)
+				// While a seek is in progress, don't push non-seek position
+				// updates: a poll can read the pre-seek position just before the
+				// seek applies and deliver it after the seek event, which would
+				// make the lyrics scroll back before correcting.
+				if !p.IsSeeking() {
+					p.handleTimePosUpdate(false)
+				}
 			}
 		}
 	}()
