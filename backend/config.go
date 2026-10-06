@@ -22,6 +22,16 @@ type ServerConnection struct {
 	Username      string
 	LegacyAuth    bool
 	SkipSSLVerify bool
+
+	// ClientCertPath is a path to a PKCS#12 (.p12/.pfx) bundle containing a
+	// client certificate + private key, used for mutual TLS.
+	ClientCertPath string
+	// ClientCertCAFile optionally points at a PEM CA bundle used to verify a
+	// server certificate signed by a private CA.
+	ClientCertCAFile string
+	// ClientCertPassphrase decrypts ClientCertPath. It is a transient secret and
+	// is never written to the config file.
+	ClientCertPassphrase string `toml:"-"`
 }
 
 type ServerConfig struct {

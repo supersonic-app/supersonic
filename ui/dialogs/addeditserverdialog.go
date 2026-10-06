@@ -25,13 +25,22 @@ type AddEditServerDialog struct {
 	Password      string
 	LegacyAuth    bool
 	SkipSSLVerify bool
-	OnSubmit      func()
-	OnCancel      func()
+
+	// Client certificate (mutual TLS) settings.
+	ClientCertPath   string
+	ClientCertCAFile string
+	CertPassphrase   string
+
+	OnSubmit     func()
+	OnCancel     func()
+	OnBrowseCert func()
 
 	passField  *widget.Entry
 	submitBtn  *widget.Button
 	promptText *widget.RichText
 	container  *fyne.Container
+
+	certPathBinding binding.String
 }
 
 var _ fyne.Widget = (*AddEditServerDialog)(nil)
@@ -47,6 +56,8 @@ func NewAddEditServerDialog(title string, cancelable bool, prefillServer *backen
 		a.Username = prefillServer.Username
 		a.LegacyAuth = prefillServer.LegacyAuth
 		a.SkipSSLVerify = prefillServer.SkipSSLVerify
+		a.ClientCertPath = prefillServer.ClientCertPath
+		a.ClientCertCAFile = prefillServer.ClientCertCAFile
 	}
 
 	titleLabel := widget.NewLabel(title)
@@ -70,6 +81,19 @@ func NewAddEditServerDialog(title string, cancelable bool, prefillServer *backen
 	serverTypeChoice.Selected = string(selected)
 	a.passField = widget.NewPasswordEntry()
 	a.passField.OnSubmitted = func(_ string) { a.doSubmit() }
+	a.certPathBinding = binding.BindString(&a.ClientCertPath)
+	certPathField := widget.NewEntryWithData(a.certPathBinding)
+	certPathField.SetPlaceHolder(lang.L("Path to client certificate (.p12/.pfx)"))
+	browseBtn := widget.NewButtonWithIcon("", theme.FolderOpenIcon(), func() {
+		if a.OnBrowseCert != nil {
+			a.OnBrowseCert()
+		}
+	})
+	certPassField := widget.NewPasswordEntry()
+	certPassField.Bind(binding.BindString(&a.CertPassphrase))
+	certPassField.SetPlaceHolder(lang.L("optional"))
+	caField := widget.NewEntryWithData(binding.BindString(&a.ClientCertCAFile))
+	caField.SetPlaceHolder(lang.L("optional") + " (PEM)")
 	userField := widget.NewEntryWithData(binding.BindString(&a.Username))
 	userField.OnSubmitted = func(_ string) { focusHandler(a.passField) }
 	altHostField := widget.NewEntryWithData(binding.BindString(&a.AltHost))
@@ -115,6 +139,12 @@ func NewAddEditServerDialog(title string, cancelable bool, prefillServer *backen
 			userField,
 			widget.NewLabel(lang.L("Password")),
 			a.passField,
+			widget.NewLabel(lang.L("Client certificate")),
+			container.NewBorder(nil, nil, nil, browseBtn, certPathField),
+			widget.NewLabel(lang.L("Certificate passphrase")),
+			certPassField,
+			widget.NewLabel(lang.L("CA certificate")),
+			caField,
 		),
 		container.NewHBox(layout.NewSpacer(), legacyAuthCheck, skipSSLCheck),
 		widget.NewSeparator(),
@@ -139,6 +169,14 @@ func (a *AddEditServerDialog) EnableSubmit() {
 func (a *AddEditServerDialog) DisableSubmit() {
 	a.submitBtn.Disable()
 	a.submitBtn.Refresh()
+}
+
+// SetClientCertPath updates the client certificate path field, e.g. after a
+// file was chosen from the browse dialog.
+func (a *AddEditServerDialog) SetClientCertPath(path string) {
+	if a.certPathBinding != nil {
+		a.certPathBinding.Set(path)
+	}
 }
 
 func (a *AddEditServerDialog) doSubmit() {

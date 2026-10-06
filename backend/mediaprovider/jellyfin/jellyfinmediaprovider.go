@@ -4,7 +4,6 @@ import (
 	"image"
 	"io"
 	"math"
-	"net/http"
 	"sync"
 	"time"
 
@@ -376,7 +375,7 @@ func (j *JellyfinMediaProvider) DownloadTrack(trackID string) (io.Reader, error)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.Get(url)
+	resp, err := j.client.HTTPClient.Get(url)
 	if err != nil {
 		return nil, err
 	}

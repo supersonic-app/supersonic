@@ -147,8 +147,13 @@ func ReorderItems[T any](items []T, idxToMove []int, insertIdx int) []T {
 
 // DownloadFileWithContext downloads a file from the specified URL and saves it to destPath.
 // It respects the provided context and will cancel the request and cleanup if context is done.
+// The provided http.Client is used for the request (falling back to http.DefaultClient when nil),
+// so callers can supply a client configured for mutual TLS.
 // Returns an error if an error other than cancellation occurs, and returns true IFF the file was completely downloaded.
-func DownloadFileWithContext(ctx context.Context, url string, destPath string) (bool, error) {
+func DownloadFileWithContext(ctx context.Context, client *http.Client, url string, destPath string) (bool, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
 	// Create HTTP request with context
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -156,7 +161,7 @@ func DownloadFileWithContext(ctx context.Context, url string, destPath string) (
 	}
 
 	// Perform the request
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return false, fmt.Errorf("performing request: %w", err)
 	}

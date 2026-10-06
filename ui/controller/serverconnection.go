@@ -11,12 +11,14 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/lang"
 	"fyne.io/fyne/v2/widget"
+	"github.com/google/uuid"
 	"github.com/supersonic-app/supersonic/backend"
 	"github.com/supersonic-app/supersonic/ui/dialogs"
 )
 
 func (m *Controller) PromptForFirstServer() {
 	d := dialogs.NewAddEditServerDialog(lang.L("Connect to Server"), false, nil, m.MainWindow.Canvas().Focus)
+	m.setupServerDialogCertPicker(d)
 	pop := widget.NewModalPopUp(container.NewPadded(d), m.MainWindow.Canvas())
 	d.OnSubmit = func() {
 		d.DisableSubmit()
@@ -28,12 +30,15 @@ func (m *Controller) PromptForFirstServer() {
 					m.doModalClosed()
 				})
 				conn := backend.ServerConnection{
-					ServerType:    d.ServerType,
-					Hostname:      d.Host,
-					AltHostname:   d.AltHost,
-					Username:      d.Username,
-					LegacyAuth:    d.LegacyAuth,
-					SkipSSLVerify: d.SkipSSLVerify,
+					ServerType:           d.ServerType,
+					Hostname:             d.Host,
+					AltHostname:          d.AltHost,
+					Username:             d.Username,
+					LegacyAuth:           d.LegacyAuth,
+					SkipSSLVerify:        d.SkipSSLVerify,
+					ClientCertPath:       d.ClientCertPath,
+					ClientCertCAFile:     d.ClientCertCAFile,
+					ClientCertPassphrase: d.CertPassphrase,
 				}
 				server := m.App.ServerManager.AddServer(d.Nickname, conn)
 				if err := m.trySetPasswordAndConnectToServer(server, d.Password); err != nil {
@@ -118,7 +123,7 @@ func (m *Controller) PromptForLoginAndConnect() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			err := m.App.ServerManager.TestConnectionAndAuth(ctx, server.ServerConnection, password)
+			err := m.App.ServerManager.TestConnectionAndAuth(ctx, server.ServerConnection, password, server.ID)
 			fyne.Do(func() {
 				if err == backend.ErrUnreachable {
 					d.SetErrorText(lang.L("Server unreachable"))
@@ -136,6 +141,7 @@ func (m *Controller) PromptForLoginAndConnect() {
 	d.OnEditServer = func(server *backend.ServerConfig) {
 		pop.Hide()
 		editD := dialogs.NewAddEditServerDialog(lang.L("Edit server"), true, server, m.MainWindow.Canvas().Focus)
+		m.setupServerDialogCertPicker(editD)
 		editPop := widget.NewModalPopUp(container.NewPadded(editD), m.MainWindow.Canvas())
 		editD.OnSubmit = func() {
 			d.DisableSubmit()
@@ -151,6 +157,9 @@ func (m *Controller) PromptForLoginAndConnect() {
 						server.Username = editD.Username
 						server.LegacyAuth = editD.LegacyAuth
 						server.SkipSSLVerify = editD.SkipSSLVerify
+						server.ClientCertPath = editD.ClientCertPath
+						server.ClientCertCAFile = editD.ClientCertCAFile
+						server.ClientCertPassphrase = editD.CertPassphrase
 						m.trySetPasswordAndConnectToServer(server, editD.Password)
 						m.doModalClosed()
 					}
@@ -167,6 +176,7 @@ func (m *Controller) PromptForLoginAndConnect() {
 	d.OnNewServer = func() {
 		pop.Hide()
 		newD := dialogs.NewAddEditServerDialog(lang.L("Add Server"), true, nil, m.MainWindow.Canvas().Focus)
+		m.setupServerDialogCertPicker(newD)
 		newPop := widget.NewModalPopUp(container.NewPadded(newD), m.MainWindow.Canvas())
 		newD.OnSubmit = func() {
 			d.DisableSubmit()
@@ -177,12 +187,15 @@ func (m *Controller) PromptForLoginAndConnect() {
 						// connection is good
 						newPop.Hide()
 						conn := backend.ServerConnection{
-							ServerType:    newD.ServerType,
-							Hostname:      newD.Host,
-							AltHostname:   newD.AltHost,
-							Username:      newD.Username,
-							LegacyAuth:    newD.LegacyAuth,
-							SkipSSLVerify: newD.SkipSSLVerify,
+							ServerType:           newD.ServerType,
+							Hostname:             newD.Host,
+							AltHostname:          newD.AltHost,
+							Username:             newD.Username,
+							LegacyAuth:           newD.LegacyAuth,
+							SkipSSLVerify:        newD.SkipSSLVerify,
+							ClientCertPath:       newD.ClientCertPath,
+							ClientCertCAFile:     newD.ClientCertCAFile,
+							ClientCertPassphrase: newD.CertPassphrase,
 						}
 						server := m.App.ServerManager.AddServer(newD.Nickname, conn)
 						m.trySetPasswordAndConnectToServer(server, newD.Password)
@@ -225,6 +238,11 @@ func (c *Controller) trySetPasswordAndConnectToServer(server *backend.ServerConf
 		// Don't return an error; fall back to just using the password in-memory
 		// User will need to log in with the password on subsequent runs.
 	}
+	if server.ClientCertPath != "" && server.ClientCertPassphrase != "" {
+		if err := c.App.ServerManager.SetServerCertPassphrase(server.ID, server.ClientCertPassphrase); err != nil {
+			log.Printf("error setting keyring client certificate passphrase: %v", err)
+		}
+	}
 	return c.tryConnectToServer(context.Background(), server, password)
 }
 
@@ -233,7 +251,7 @@ func (c *Controller) tryConnectToServer(ctx context.Context, server *backend.Ser
 	timeout := time.Duration(c.App.Config.Application.RequestTimeoutSeconds) * time.Second
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	if err := c.App.ServerManager.TestConnectionAndAuth(ctx, server.ServerConnection, password); err != nil {
+	if err := c.App.ServerManager.TestConnectionAndAuth(ctx, server.ServerConnection, password, server.ID); err != nil {
 		return err
 	}
 	if err := c.App.ServerManager.ConnectToServer(server, password); err != nil {
@@ -247,16 +265,19 @@ func (c *Controller) tryConnectToServer(ctx context.Context, server *backend.Ser
 func (c *Controller) testConnectionAndUpdateDialogText(dlg *dialogs.AddEditServerDialog) bool {
 	fyne.Do(func() { dlg.SetInfoText(lang.L("Testing connection") + "...") })
 	conn := backend.ServerConnection{
-		ServerType:    dlg.ServerType,
-		Hostname:      dlg.Host,
-		AltHostname:   dlg.AltHost,
-		Username:      dlg.Username,
-		LegacyAuth:    dlg.LegacyAuth,
-		SkipSSLVerify: dlg.SkipSSLVerify,
+		ServerType:           dlg.ServerType,
+		Hostname:             dlg.Host,
+		AltHostname:          dlg.AltHost,
+		Username:             dlg.Username,
+		LegacyAuth:           dlg.LegacyAuth,
+		SkipSSLVerify:        dlg.SkipSSLVerify,
+		ClientCertPath:       dlg.ClientCertPath,
+		ClientCertCAFile:     dlg.ClientCertCAFile,
+		ClientCertPassphrase: dlg.CertPassphrase,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	err := c.App.ServerManager.TestConnectionAndAuth(ctx, conn, dlg.Password)
+	err := c.App.ServerManager.TestConnectionAndAuth(ctx, conn, dlg.Password, uuid.Nil)
 	if err == backend.ErrUnreachable {
 		fyne.Do(func() {
 			dlg.SetErrorText(lang.L("Could not reach server") + fmt.Sprintf(" (%s?)", lang.L("wrong URL")))
@@ -269,4 +290,18 @@ func (c *Controller) testConnectionAndUpdateDialogText(dlg *dialogs.AddEditServe
 		return false
 	}
 	return true
+}
+
+// setupServerDialogCertPicker wires the "browse" button of an add/edit server
+// dialog to a file picker for selecting a PKCS#12 client certificate.
+func (m *Controller) setupServerDialogCertPicker(d *dialogs.AddEditServerDialog) {
+	d.OnBrowseCert = func() {
+		dialog.NewFileOpen(func(rc fyne.URIReadCloser, err error) {
+			if err != nil || rc == nil {
+				return
+			}
+			defer rc.Close()
+			d.SetClientCertPath(rc.URI().Path())
+		}, m.MainWindow).Show()
+	}
 }
