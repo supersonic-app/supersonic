@@ -27,6 +27,9 @@ zip_macos:
 package_windows:
 	fyne package -os windows -tags migrated_fynedo
 
+package_windows_arm64:
+	CC=clang CXX=clang++ fyne package -os windows -tags migrated_fynedo
+
 package_linux:
 	fyne package -os linux -tags migrated_fynedo
 
