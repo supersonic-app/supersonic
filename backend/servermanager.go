@@ -2,11 +2,9 @@ package backend
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"strings"
 	"time"
 
@@ -30,18 +28,20 @@ type ServerManager struct {
 	appName           string
 	appVersion        string
 	config            *Config
+	httpClients       *appHTTPClientFactory
 	onServerConnected []func(*ServerConfig)
 	onLogout          []func()
 }
 
 var ErrUnreachable = errors.New("server is unreachable")
 
-func NewServerManager(appName, appVersion string, config *Config, useKeyring bool) *ServerManager {
+func NewServerManager(appName, appVersion string, config *Config, useKeyring bool, httpClients *appHTTPClientFactory) *ServerManager {
 	return &ServerManager{
-		appName:    appName,
-		appVersion: appVersion,
-		config:     config,
-		useKeyring: useKeyring,
+		appName:     appName,
+		appVersion:  appVersion,
+		config:      config,
+		useKeyring:  useKeyring,
+		httpClients: httpClients,
 	}
 }
 
@@ -189,23 +189,21 @@ func (s *ServerManager) connect(connection ServerConnection, password string) (m
 	}
 
 	if connection.ServerType == ServerTypeJellyfin {
-		client, err := jellyfin.NewClient(connection.Hostname, res.AppName, res.AppVersion, jellyfin.WithTimeout(timeout))
+		client, err := jellyfin.NewClient(connection.Hostname, res.AppName, res.AppVersion, jellyfin.WithHTTPClient(s.httpClients.NewClient(timeout, connection.SkipSSLVerify)))
 		if err != nil {
 			log.Printf("error creating Jellyfin client: %s", err.Error())
 			return nil, err
 		}
-		s.checkSetInsecureSkipVerify(connection.SkipSSLVerify, client.HTTPClient)
 		cli = &jellyfinMP.JellyfinServer{
 			Client: *client,
 		}
 
 		if connection.AltHostname != "" {
-			altClient, err := jellyfin.NewClient(connection.AltHostname, res.AppName, res.AppVersion, jellyfin.WithTimeout(timeout))
+			altClient, err := jellyfin.NewClient(connection.AltHostname, res.AppName, res.AppVersion, jellyfin.WithHTTPClient(s.httpClients.NewClient(timeout, connection.SkipSSLVerify)))
 			if err != nil {
 				log.Printf("error creating Jellyfin alternative client: %s", err.Error())
 				return nil, err
 			}
-			s.checkSetInsecureSkipVerify(connection.SkipSSLVerify, altClient.HTTPClient)
 			altCli = &jellyfinMP.JellyfinServer{
 				Client: *altClient,
 			}
@@ -215,7 +213,7 @@ func (s *ServerManager) connect(connection ServerConnection, password string) (m
 		cli = &subsonicMP.SubsonicServer{
 			Client: subsonic.Client{
 				UserAgent:    ua,
-				Client:       &http.Client{Timeout: timeout},
+				Client:       s.httpClients.NewClient(timeout, connection.SkipSSLVerify),
 				BaseUrl:      connection.Hostname,
 				User:         connection.Username,
 				PasswordAuth: connection.LegacyAuth,
@@ -223,11 +221,10 @@ func (s *ServerManager) connect(connection ServerConnection, password string) (m
 				UseJSON:      true,
 			},
 		}
-		s.checkSetInsecureSkipVerify(connection.SkipSSLVerify, cli.(*subsonicMP.SubsonicServer).Client.Client)
 		altCli = &subsonicMP.SubsonicServer{
 			Client: subsonic.Client{
 				UserAgent:    ua,
-				Client:       &http.Client{Timeout: timeout},
+				Client:       s.httpClients.NewClient(timeout, connection.SkipSSLVerify),
 				BaseUrl:      connection.AltHostname,
 				User:         connection.Username,
 				PasswordAuth: connection.LegacyAuth,
@@ -235,7 +232,6 @@ func (s *ServerManager) connect(connection ServerConnection, password string) (m
 				UseJSON:      true,
 			},
 		}
-		s.checkSetInsecureSkipVerify(connection.SkipSSLVerify, altCli.(*subsonicMP.SubsonicServer).Client.Client)
 	}
 
 	// struct to return hostname type in isAlt and connection success on err
@@ -279,14 +275,6 @@ func (s *ServerManager) connect(connection ServerConnection, password string) (m
 			return altCli, res.err
 		}
 		return cli, res.err
-	}
-}
-
-func (s *ServerManager) checkSetInsecureSkipVerify(skip bool, cli *http.Client) {
-	if skip {
-		cli.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		}
 	}
 }
 

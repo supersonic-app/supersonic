@@ -100,7 +100,7 @@ func NewWithClientName(c string) *Player {
 
 // Initializes the Player and makes it ready for playback.
 // Most Player functions will return ErrUnitialized if called before Init.
-func (p *Player) Init(maxCacheMB int) error {
+func (p *Player) Init(maxCacheMB int, httpProxy string) error {
 	if !p.initialized {
 		m := mpv.Create()
 
@@ -130,6 +130,10 @@ func (p *Player) Init(maxCacheMB int) error {
 
 		if p.clientName != "" {
 			m.SetOptionString("audio-client-name", p.clientName)
+		}
+
+		if httpProxy != "" {
+			m.SetOptionString("http-proxy", httpProxy)
 		}
 
 		m.ObserveProperty(0, "metadata", mpv.FORMAT_NODE)

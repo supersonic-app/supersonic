@@ -515,6 +515,7 @@ func (c *Controller) downloadTrack(track *mediaprovider.Track, filePath string) 
 		log.Println(err)
 		return
 	}
+	defer reader.Close()
 
 	file, err := os.Create(filePath)
 	if err != nil {
@@ -553,21 +554,25 @@ func (c *Controller) downloadTracks(tracks []*mediaprovider.Track, filePath, dow
 			continue
 		}
 
-		fileName := filepath.Base(track.FilePath)
+		func() {
+			defer reader.Close()
 
-		fileWriter, err := zipWriter.Create(fileName)
-		if err != nil {
-			log.Println(err)
-			continue
-		}
+			fileName := filepath.Base(track.FilePath)
 
-		_, err = io.Copy(fileWriter, reader)
-		if err != nil {
-			log.Println(err)
-			continue
-		}
+			fileWriter, err := zipWriter.Create(fileName)
+			if err != nil {
+				log.Println(err)
+				return
+			}
 
-		log.Printf("Saved song %s to: %s\n", track.Title, filePath)
+			_, err = io.Copy(fileWriter, reader)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+
+			log.Printf("Saved song %s to: %s\n", track.Title, filePath)
+		}()
 	}
 
 	fyne.Do(func() {

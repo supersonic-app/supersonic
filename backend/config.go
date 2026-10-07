@@ -61,6 +61,7 @@ type AppConfig struct {
 	ShowSidebar                 bool
 	SidebarWidthFraction        float64
 	SidebarTab                  string
+	HTTPProxy                   string // HTTP proxy URL with optional auth (http://user:pass@proxy:8080); host[:port] assumes http://
 
 	PreventScreensaverOnNowPlayingPage bool
 
@@ -136,7 +137,7 @@ type LocalPlaybackConfig struct {
 	InMemoryCacheSizeMB   int
 	Volume                int
 	EqualizerEnabled      bool
-	EqualizerType         string    // "ISO10Band" or "ISO15Band"
+	EqualizerType         string // "ISO10Band" or "ISO15Band"
 	EqualizerPreamp       float64
 	GraphicEqualizerBands []float64
 	ActiveEQPresetName    string // Name of currently selected EQ preset
@@ -345,9 +346,24 @@ func (c *Config) WriteConfigFile(filepath string) error {
 	if err != nil {
 		return err
 	}
-	os.WriteFile(filepath, b, 0o644)
 
-	return nil
+	// Proxy credentials may be stored in the application configuration. Tighten
+	// the file on POSIX systems; Windows access is governed by its ACLs.
+	if err := os.Chmod(filepath, 0o600); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	f, err := os.OpenFile(filepath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(b); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Chmod(filepath, 0o600)
 }
 
 func (c *Config) migrateDeprecatedSettings() {

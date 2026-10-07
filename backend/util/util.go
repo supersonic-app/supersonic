@@ -24,6 +24,27 @@ func CopyFile(srcPath, dstPath string) error {
 	return err
 }
 
+func CopyFileWithMode(srcPath, dstPath string, mode os.FileMode) error {
+	fin, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer fin.Close()
+	fout, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	if err := fout.Chmod(mode); err != nil {
+		_ = fout.Close()
+		return err
+	}
+	if _, err := io.Copy(fout, fin); err != nil {
+		_ = fout.Close()
+		return err
+	}
+	return fout.Close()
+}
+
 func GetLocalIP() (string, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {

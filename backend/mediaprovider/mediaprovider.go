@@ -283,7 +283,7 @@ type MediaProvider interface {
 
 	TrackEndedPlayback(trackID string, positionSecs int, submission bool) error
 
-	DownloadTrack(trackID string) (io.Reader, error)
+	DownloadTrack(trackID string) (io.ReadCloser, error)
 
 	RescanLibrary() error
 }
