@@ -1,10 +1,13 @@
 package dialogs
 
 import (
+	"context"
 	"errors"
 	"log"
 	"math"
+	"net"
 	"os"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -838,14 +841,171 @@ func (s *SettingsDialog) createAdvancedTab() *container.TabItem {
 	preventScreensaver := widget.NewCheckWithData(lang.L("Prevent screensaver on Now Playing page"),
 		binding.BindBool(&s.config.Application.PreventScreensaverOnNowPlayingPage))
 
-	return container.NewTabItem(lang.L("Advanced"), container.NewVBox(
+	var networkInterfaceSettings fyne.CanvasObject
+	if runtime.GOOS == "linux" {
+		interfaceOptions, recommendedInterfaces := networkInterfaceOptions()
+		if name := s.config.Application.SSDPInterfaceName; name != "" {
+			displayName := interfaceDisplayName(name, recommendedInterfaces)
+			if !slices.Contains(interfaceOptions, displayName) {
+				interfaceOptions = append(interfaceOptions, displayName)
+			}
+		}
+		interfaceSelect := widget.NewSelect(interfaceOptions, func(name string) {
+			s.config.Application.SSDPInterfaceName = strings.TrimSuffix(name, " (recommended)")
+		})
+		interfaceSelect.Selected = interfaceDisplayName(s.config.Application.SSDPInterfaceName, recommendedInterfaces)
+
+		useDefaultInterface := widget.NewCheck(lang.L("Use default network interface selection"), func(checked bool) {
+			s.config.Application.UseDefaultSSDPInterface = checked
+			if checked {
+				interfaceSelect.Disable()
+			} else {
+				interfaceSelect.Enable()
+			}
+		})
+		useDefaultInterface.Checked = s.config.Application.UseDefaultSSDPInterface
+		if useDefaultInterface.Checked {
+			interfaceSelect.Disable()
+		}
+		networkInterfaceSettings = container.NewVBox(
+			useDefaultInterface,
+			container.NewBorder(nil, nil, widget.NewLabel(lang.L("Network interface")), nil, interfaceSelect),
+		)
+	}
+
+	rendererURLs := widget.NewEntry()
+	rendererURLs.SetText(s.config.Application.DLNARendererURLs)
+	rendererURLs.SetPlaceHolder("http://192.0.2.42:49152/description.xml")
+	rendererURLs.OnChanged = func(value string) {
+		s.config.Application.DLNARendererURLs = value
+	}
+
+	var rendererDiscoverySettings fyne.CanvasObject
+	if runtime.GOOS == "linux" {
+		rendererNames := make(map[string]string)
+		rendererSelect := widget.NewSelect(nil, func(name string) {
+			if url := rendererNames[name]; url != "" {
+				rendererURLs.SetText(url)
+			}
+		})
+		searchStatus := widget.NewLabel("")
+		var searchButton *widget.Button
+		searchButton = widget.NewButton(lang.L("Search for renderers"), func() {
+			searchButton.Disable()
+			searchStatus.SetText(lang.L("Searching..."))
+			appCfg := s.config.Application
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				renderers, err := backend.DiscoverDLNARenderers(ctx, &appCfg)
+				fyne.Do(func() {
+					defer searchButton.Enable()
+					if err != nil {
+						searchStatus.SetText(err.Error())
+						return
+					}
+					rendererNames = make(map[string]string, len(renderers))
+					names := make([]string, 0, len(renderers))
+					for _, renderer := range renderers {
+						rendererNames[renderer.Name] = renderer.URL
+						names = append(names, renderer.Name)
+					}
+					rendererSelect.Options = names
+					rendererSelect.Selected = ""
+					rendererSelect.Refresh()
+					if len(names) == 0 {
+						searchStatus.SetText(lang.L("No LinkPlay renderers found"))
+					} else {
+						searchStatus.SetText("")
+					}
+				})
+			}()
+		})
+		rendererDiscoverySettings = container.NewVBox(
+			container.NewBorder(nil, nil, widget.NewLabel(lang.L("Discovered renderer")), searchButton, rendererSelect),
+			searchStatus,
+		)
+	}
+
+	helpButton := widget.NewButtonWithIcon(lang.L("Help"), theme.InfoIcon(), func() {
+		help := widget.NewRichTextFromMarkdown(`## DLNA / UPnP renderer settings
+
+Supersonic normally discovers DLNA players automatically using SSDP. Keep **Use default network interface selection** enabled to preserve that behavior.
+
+On Linux, if the player is not found, disable the checkbox and select the network interface that is connected to the same LAN as the player. Active wired and Wi-Fi interfaces are marked **(recommended)**. This interface selector is only available on Linux.
+
+The **Renderer description URL** is an optional manual fallback. It points to the player's UPnP device description, not to an audio file. For example:
+
+~~~
+http://192.0.2.42:49152/description.xml
+~~~
+
+Enter multiple renderer URLs separated by commas. Close this settings dialog after changing the values; Supersonic will rescan the renderers automatically.`)
+		help.Wrapping = fyne.TextWrapWord
+		help.Scroll = fyne.ScrollVerticalOnly
+		help.Resize(fyne.NewSize(560, 400))
+		dlg := dialog.NewCustom(lang.L("DLNA / UPnP help"), lang.L("Close"), help, s.window)
+		dlg.Resize(fyne.NewSize(650, 520))
+		dlg.Show()
+	})
+	dlnaSettings := []fyne.CanvasObject{
+		s.newSectionSeparator(),
+		container.NewBorder(nil, nil, widget.NewLabel(lang.L("DLNA / UPnP")), nil, helpButton),
+	}
+	if networkInterfaceSettings != nil {
+		dlnaSettings = append(dlnaSettings, networkInterfaceSettings)
+	}
+	if rendererDiscoverySettings != nil {
+		dlnaSettings = append(dlnaSettings, rendererDiscoverySettings)
+	}
+	dlnaSettings = append(dlnaSettings,
+		container.NewBorder(nil, nil, widget.NewLabel(lang.L("Renderer description URL")), nil, rendererURLs),
+	)
+	advancedSettings := []fyne.CanvasObject{
 		multi,
 		update,
 		lrclib,
 		osMediaAPIs,
 		preventScreensaver,
 		imgCacheCfg,
-	))
+	}
+	advancedSettings = append(advancedSettings, dlnaSettings...)
+
+	return container.NewTabItem(lang.L("Advanced"), container.NewVBox(advancedSettings...))
+}
+
+func networkInterfaceOptions() ([]string, map[string]bool) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, nil
+	}
+
+	options := make([]string, 0, len(interfaces))
+	recommended := make(map[string]bool)
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagUp != 0 && iface.Flags&net.FlagMulticast != 0 && iface.Flags&net.FlagBroadcast != 0 && iface.Flags&net.FlagLoopback == 0 {
+			addresses, err := iface.Addrs()
+			if err == nil {
+				for _, address := range addresses {
+					ip, _, err := net.ParseCIDR(address.String())
+					if err == nil && ip.To4() != nil {
+						recommended[iface.Name] = true
+						break
+					}
+				}
+			}
+		}
+		options = append(options, interfaceDisplayName(iface.Name, recommended))
+	}
+	slices.Sort(options)
+	return options, recommended
+}
+
+func interfaceDisplayName(name string, recommended map[string]bool) string {
+	if recommended[name] {
+		return name + " (recommended)"
+	}
+	return name
 }
 
 func (s *SettingsDialog) doChooseTTFFile(window fyne.Window, entry *widget.Entry) {
