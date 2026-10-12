@@ -17,6 +17,7 @@ import (
 	"github.com/supersonic-app/supersonic/backend/mediaprovider"
 	"github.com/supersonic-app/supersonic/backend/player"
 	"github.com/supersonic-app/supersonic/backend/player/dlna"
+	"github.com/supersonic-app/supersonic/backend/player/jukebox"
 	"github.com/supersonic-app/supersonic/backend/player/mpv"
 	"github.com/supersonic-app/supersonic/sharedutil"
 )
@@ -41,6 +42,14 @@ type PlaybackManager struct {
 	remotePlayersLock   sync.Mutex
 	remotePlayers       []RemotePlaybackDevice
 	currentRemotePlayer *RemotePlaybackDevice
+
+	// jukeboxSupported caches whether the connected server has confirmed
+	// support for Jukebox playback (see refreshJukeboxSupport). Only ever
+	// written from a background goroutine kicked off on server (re)connect,
+	// so that RemotePlayers() - called synchronously from the UI - never
+	// blocks on the network probe itself.
+	jukeboxSupportedLock sync.Mutex
+	jukeboxSupported     bool
 
 	onWaveformImgUpdate []func(*WaveformImage)
 	onPlayerChange      []func()
@@ -67,6 +76,18 @@ type RemotePlaybackDevice struct {
 	new      func() (player.BasePlayer, error)
 }
 
+// JukeboxProtocol is the RemotePlaybackDevice.Protocol value for server-side
+// Jukebox playback, so callers (e.g. the UI cast menu) can special-case it
+// without depending on the device Name string.
+const JukeboxProtocol = "Jukebox"
+
+// jukeboxDeviceURL identifies the RemotePlaybackDevice for server-side Jukebox
+// playback. Unlike DLNA devices (identified by their real network URL), the
+// Jukebox device isn't discovered on the network - it's synthesized from the
+// currently connected server's capabilities - so it needs a stable placeholder
+// URL to be identifiable/comparable in the cast device list.
+const jukeboxDeviceURL = "jukebox://current-server"
+
 func NewPlaybackManager(
 	ctx context.Context,
 	s *ServerManager,
@@ -91,6 +112,13 @@ func NewPlaybackManager(
 		pm.wfmGen = NewWaveformImageGenerator(c)
 	}
 	pm.addOnTrackChangeHook()
+	s.OnServerConnected(func(*ServerConfig) {
+		pm.setJukeboxSupported(false)
+		go pm.refreshJukeboxSupport()
+	})
+	s.OnLogout(func() {
+		pm.setJukeboxSupported(false)
+	})
 	go pm.runCmdQueue(ctx)
 	return pm
 }
@@ -275,11 +303,62 @@ func (p *PlaybackManager) scanRemotePlayers(ctx context.Context, waitSec int) {
 	p.remotePlayersLock.Unlock()
 }
 
+// RemotePlayers returns the list of currently available remote (cast)
+// playback devices: network-discovered DLNA renderers, plus a Jukebox device
+// if the connected server supports server-side Jukebox playback.
 func (p *PlaybackManager) RemotePlayers() []RemotePlaybackDevice {
 	p.remotePlayersLock.Lock()
-	players := p.remotePlayers
+	discovered := p.remotePlayers
 	p.remotePlayersLock.Unlock()
+
+	players := make([]RemotePlaybackDevice, 0, len(discovered)+1)
+	players = append(players, discovered...)
+	if jp, ok := p.jukeboxProvider(); ok && p.isJukeboxSupported() {
+		players = append(players, RemotePlaybackDevice{
+			Name:     "Jukebox",
+			URL:      jukeboxDeviceURL,
+			Protocol: JukeboxProtocol,
+			new: func() (player.BasePlayer, error) {
+				return jukebox.NewJukeboxPlayer(jp)
+			},
+		})
+	}
 	return players
+}
+
+// jukeboxProvider returns the connected server's mediaprovider.JukeboxProvider
+// capability, if it has one. This is a cheap type assertion - it says nothing
+// about whether the server actually allows jukebox playback for this user;
+// see isJukeboxSupported/refreshJukeboxSupport for that.
+func (p *PlaybackManager) jukeboxProvider() (mediaprovider.JukeboxProvider, bool) {
+	mp := p.engine.sm.GetServer()
+	if mp == nil {
+		return nil, false
+	}
+	jp, ok := mp.(mediaprovider.JukeboxProvider)
+	return jp, ok
+}
+
+func (p *PlaybackManager) isJukeboxSupported() bool {
+	p.jukeboxSupportedLock.Lock()
+	defer p.jukeboxSupportedLock.Unlock()
+	return p.jukeboxSupported
+}
+
+func (p *PlaybackManager) setJukeboxSupported(supported bool) {
+	p.jukeboxSupportedLock.Lock()
+	p.jukeboxSupported = supported
+	p.jukeboxSupportedLock.Unlock()
+}
+
+// refreshJukeboxSupport probes (via mediaprovider.JukeboxProvider.JukeboxSupported,
+// which may block on a network call) whether the connected server actually
+// allows jukebox playback, and caches the result for RemotePlayers() to
+// consult. Must only be called from a background goroutine - never from a
+// path that can be reached synchronously from the UI.
+func (p *PlaybackManager) refreshJukeboxSupport() {
+	jp, ok := p.jukeboxProvider()
+	p.setJukeboxSupported(ok && jp.JukeboxSupported())
 }
 
 func (p *PlaybackManager) CurrentRemotePlayer() *RemotePlaybackDevice {

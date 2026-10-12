@@ -40,6 +40,9 @@ type subsonicMediaProvider struct {
 
 	playbackReportOnce      sync.Once
 	playbackReportSupported bool
+
+	jukeboxSupportOnce sync.Once
+	jukeboxSupported   bool
 }
 
 func SubsonicMediaProvider(subsonicClient *subsonic.Client) mediaprovider.MediaProvider {
