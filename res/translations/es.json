@@ -44,6 +44,7 @@
     "Back": "Atrás",
     "Bit depth": "Profundidad de bits",
     "Bit rate": "Tasa de bits",
+    "Blur": "Desenfoque",
     "Bold font": "Fuente en negrita",
     "Broadcast": "Transmisión",
     "Browse Headphone Profiles": "Descubrir Perfiles de Auriculares",
@@ -62,6 +63,8 @@
     "Compilation": "Compilación",
     "Compilations": "Compilaciónes",
     "Composer": "Compositor",
+    "Contrast": "Contraste",
+    "Accent Color": "Color de acento",
     "Composers": "Compositores",
     "Configure your music server to add radio stations": "Configura tu servidor de música para agregar estaciones de radio",
     "Confirm Delete Playlist": "Confirmar eliminación de la lista de reproducción",
@@ -82,6 +85,7 @@
     "Demo": "Demo",
     "Disable automatic DPI adjustment": "Desactivar el ajuste de DPI automático",
     "Disable server transcoding": "Desactivar transcodificación del servidor",
+    "Disabled": "Desactivado",
     "Disc number": "Número de disco",
     "Discography": "Discografía",
     "Download": "Descargar",
@@ -119,6 +123,7 @@
     "Error loading AutoEQ profiles": "Ha ocurrido un error al cargar los perfiles de AutoEQ",
     "Error updating playlist": "Ha ocurrido un error al actualizar la lista de reproducción",
     "Exclusive mode": "Modo exclusivo",
+    "Extract from playing track": "Extraer de pista en reproducción",
     "Fade out on pause": "Fade out al pausar",
     "Failed to load profile": "Ha ocurrido un error al cargar el perfil",
     "Fav.": "Fav.",
@@ -134,6 +139,7 @@
     "Frequently Played": "Reproducidas frequentemente",
     "General": "General",
     "Genre": "Género",
+    "Gradient": "Gradiente",
     "Genres": "Géneros",
     "Github page": "Página de Github",
     "Go to release page": "Ir a la página de lanzamiento",
@@ -185,6 +191,7 @@
     "Oct": "Oct",
     "Overwrite Preset": "Sobreescribir Preset",
     "Owner": "Propietario",
+    "Page background mode": "Modo de fondo de página",
     "Password": "Contraseña",
     "Pause": "Pausar",
     "Pause after current track": "Pausar tras la canción actual",
@@ -202,6 +209,7 @@
     "Playback": "Reproducción",
     "Playing": "Reproduciendo",
     "Playlist": "Lista de reproducción",
+    "Saturation": "Saturación",
     "Playlists": "Listas de reproducción",
     "Plays": "Reproducciones",
     "Please select a preset to delete": "Selecione un preset para eliminar",
@@ -342,6 +350,14 @@
     "playlist.addedtracks": {
         "one": "Se ha añadido una pista a la lista de reproducción",
         "other": "Se han añadido {{.trackCount}} pistas a la lista de reproducción"
+    },
+    "{{.albumsCount}} albums": {
+        "one": "{{.albumsCount}} álbum",
+        "other": "{{.albumsCount}} álbumes"
+    },
+    "{{.trackCount}} tracks": {
+        "one": "{{.trackCount}} pista",
+        "other": "{{.trackCount}} pistas"
     },
     "reissued": "emitido nuevamente",
     "sec": "seg",

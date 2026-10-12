@@ -67,11 +67,15 @@ type AppConfig struct {
 	FontNormalTTF string
 	FontBoldTTF   string
 	UIScaleSize   string
+
+	// Global background mode for all pages ("disabled", "gradient", "blur")
+	BackgroundMode string
 }
 
 type AlbumPageConfig struct {
 	TracklistColumns []string
 	CompactHeader    bool
+	BackgroundMode   string // "disabled", "gradient", "blur"
 }
 
 // shared between Albums and Genre pages
@@ -87,6 +91,7 @@ type ArtistPageConfig struct {
 	DiscographySort  string
 	TracklistColumns []string
 	CompactHeader    bool
+	BackgroundMode   string // "disabled", "gradient", "blur"
 }
 
 type ArtistsPageConfig struct {
@@ -106,6 +111,7 @@ type GridViewConfig struct {
 type PlaylistPageConfig struct {
 	TracklistColumns []string
 	CompactHeader    bool
+	BackgroundMode   string // "disabled", "gradient", "blur"
 }
 
 type PlaylistsPageConfig struct {
@@ -136,7 +142,7 @@ type LocalPlaybackConfig struct {
 	InMemoryCacheSizeMB   int
 	Volume                int
 	EqualizerEnabled      bool
-	EqualizerType         string    // "ISO10Band" or "ISO15Band"
+	EqualizerType         string // "ISO10Band" or "ISO15Band"
 	EqualizerPreamp       float64
 	GraphicEqualizerBands []float64
 	ActiveEQPresetName    string // Name of currently selected EQ preset
@@ -161,6 +167,11 @@ type ThemeConfig struct {
 	ThemeFile              string
 	Appearance             string
 	UseRoundedImageCorners bool
+
+	// Dynamic theme configuration (enabled when ThemeFile == "dynamic")
+	AccentColor string  // Hex color code for accent
+	Saturation  float64 // Saturation multiplier (default 1.0)
+	Contrast    float64 // Contrast multiplier (default 1.0)
 }
 
 type TranscodingConfig struct {

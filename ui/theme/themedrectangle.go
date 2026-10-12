@@ -34,15 +34,19 @@ func NewThemedRectangle(colorName fyne.ThemeColorName) *ThemedRectangle {
 
 func (t *ThemedRectangle) Refresh() {
 	settings := fyne.CurrentApp().Settings()
-	theme := settings.Theme()
-	fc := theme.Color(t.ColorName, settings.ThemeVariant())
+	th := settings.Theme()
+	// Handle nil theme during theme transitions
+	if th == nil {
+		return
+	}
+	fc := th.Color(t.ColorName, settings.ThemeVariant())
 	if t.Translucent {
 		r, g, b, _ := fc.RGBA()
 		fc = color.NRGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: translucentAlpha}
 	}
 	t.rect.FillColor = fc
 	t.rect.StrokeWidth = t.BorderWidth
-	t.rect.StrokeColor = theme.Color(t.BorderColorName, settings.ThemeVariant())
+	t.rect.StrokeColor = th.Color(t.BorderColorName, settings.ThemeVariant())
 	t.rect.CornerRadius = t.CornerRadius
 	t.BaseWidget.Refresh()
 }

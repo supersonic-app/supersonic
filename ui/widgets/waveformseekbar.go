@@ -50,7 +50,7 @@ func (w *WaveformSeekbar) UpdateImage(img *backend.WaveformImage) {
 	prm, fg, _ := w.getThemeColors()
 	recolorWaveformImage(img, prm, fg, 0, w.imgProgressPixel, true)
 	w.img.Image = img
-	w.img.Refresh()
+	fyne.Do(w.img.Refresh)
 }
 
 func (w *WaveformSeekbar) Refresh() {
