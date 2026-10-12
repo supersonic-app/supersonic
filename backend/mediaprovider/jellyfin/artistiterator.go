@@ -60,7 +60,7 @@ func (j *JellyfinMediaProvider) IterateArtists(sortOrder string, filter mediapro
 		sortFn,
 	)
 
-	return helpers.NewArtistIterator(fetcher, filter, j.prefetchCoverCB)
+	return helpers.NewArtistIterator(fetcher, filter)
 }
 
 func (j *JellyfinMediaProvider) SearchArtists(searchQuery string, filter mediaprovider.ArtistFilter) mediaprovider.ArtistIterator {
@@ -82,7 +82,7 @@ func (j *JellyfinMediaProvider) SearchArtists(searchQuery string, filter mediapr
 	// 	},
 	// 	nil,
 	// )
-	// return helpers.NewArtistIterator(fetcher, filter, j.prefetchCoverCB)
+	// return helpers.NewArtistIterator(fetcher, filter)
 
 	modifiedFilter := filter.Clone()
 	modifiedOptions := modifiedFilter.Options()
@@ -101,7 +101,7 @@ func (j *JellyfinMediaProvider) SearchArtists(searchQuery string, filter mediapr
 		},
 		nil,
 	)
-	return helpers.NewArtistIterator(fetcher, modifiedFilter, j.prefetchCoverCB)
+	return helpers.NewArtistIterator(fetcher, modifiedFilter)
 }
 
 func makeArtistFetchFn(

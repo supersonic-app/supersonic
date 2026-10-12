@@ -70,9 +70,9 @@ func (j *JellyfinMediaProvider) IterateAlbums(sortOrder string, filter mediaprov
 			}
 			return sharedutil.MapSlice(al, toAlbum), nil
 		}
-		return helpers.NewRandomAlbumIter(determFetcher, fetcher, modifiedFilter, j.prefetchCoverCB)
+		return helpers.NewRandomAlbumIter(determFetcher, fetcher, modifiedFilter)
 	}
-	return helpers.NewAlbumIterator(fetcher, modifiedFilter, j.prefetchCoverCB)
+	return helpers.NewAlbumIterator(fetcher, modifiedFilter)
 }
 
 func (j *JellyfinMediaProvider) SearchAlbums(searchQuery string, filter mediaprovider.AlbumFilter) mediaprovider.AlbumIterator {
@@ -86,7 +86,7 @@ func (j *JellyfinMediaProvider) SearchAlbums(searchQuery string, filter mediapro
 		}
 		return sharedutil.MapSlice(sr.Albums, toAlbum), nil
 	}
-	return helpers.NewAlbumIterator(fetcher, filter, j.prefetchCoverCB)
+	return helpers.NewAlbumIterator(fetcher, filter)
 }
 
 func (j *JellyfinMediaProvider) IterateTracks(searchQuery string) mediaprovider.TrackIterator {
@@ -116,7 +116,7 @@ func (j *JellyfinMediaProvider) IterateTracks(searchQuery string) mediaprovider.
 			return sharedutil.MapSlice(sr.Songs, toTrack), nil
 		}
 	}
-	return helpers.NewTrackIterator(fetcher, j.prefetchCoverCB)
+	return helpers.NewTrackIterator(fetcher)
 }
 
 // Creates the Jellyfin filter to implement the given mediaprovider filter,

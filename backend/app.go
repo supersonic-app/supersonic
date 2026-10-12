@@ -169,9 +169,6 @@ func StartupApp(appName, displayAppName, appVersion, appVersionTag, latestReleas
 	}
 	a.Config.Application.MaxImageCacheSizeMB = clamp(a.Config.Application.MaxImageCacheSizeMB, 1, 500)
 	a.ImageManager.SetMaxOnDiskCacheSizeBytes(int64(a.Config.Application.MaxImageCacheSizeMB) * 1_048_576)
-	a.ServerManager.SetPrefetchAlbumCoverCallback(func(coverID string) {
-		_, _ = a.ImageManager.GetCoverThumbnail(coverID)
-	})
 	var fetch *LrcLibFetcher
 	if a.Config.Application.EnableLrcLib {
 		timeout := time.Duration(a.Config.Application.RequestTimeoutSeconds) * time.Second
