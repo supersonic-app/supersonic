@@ -194,14 +194,19 @@ func (b *BrowsingPane) onPlayTimeUpdate(cur, total float64, seeked bool) {
 }
 
 func (b *BrowsingPane) onQueueChange() {
-	fyne.Do(func() {
-		if b.curPage == nil {
-			return
-		}
-		if p, ok := b.curPage.(CanShowPlayQueue); ok {
-			p.OnPlayQueueChange()
-		}
-	})
+	fyne.Do(b.RefreshPlayQueue)
+}
+
+// RefreshPlayQueue notifies the current page, if it displays the play queue,
+// that the queue it is showing needs to be refreshed. Must be called on the
+// Fyne main goroutine.
+func (b *BrowsingPane) RefreshPlayQueue() {
+	if b.curPage == nil {
+		return
+	}
+	if p, ok := b.curPage.(CanShowPlayQueue); ok {
+		p.OnPlayQueueChange()
+	}
 }
 
 func (b *BrowsingPane) addPageToHistory(p Page, truncate bool) {

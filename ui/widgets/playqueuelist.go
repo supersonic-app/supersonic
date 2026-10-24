@@ -63,7 +63,14 @@ type PlayQueueList struct {
 	list        *FocusList
 	colLayout   *layouts.ColumnsLayout
 	tracksMutex sync.RWMutex
-	items       []*util.TrackListModel
+	items       []*util.TrackListModel // displayed items: allItems[hiddenCount:]
+
+	// state for the hide-played-tracks filter, see SetQueue. guarded by tracksMutex.
+	// an index into items plus hiddenCount is an index into the full queue.
+	allItems      []*util.TrackListModel
+	nowPlayingIdx int
+	hidePlayed    bool
+	hiddenCount   int
 }
 
 func NewPlayQueueList(im *backend.ImageManager, useNonQueueMenu bool) *PlayQueueList {
@@ -97,13 +104,15 @@ func NewPlayQueueList(im *backend.ImageManager, useNonQueueMenu bool) *PlayQueue
 				return
 			}
 			model := p.items[itemID]
+			// number rows by their position in the full queue
+			trackNum := itemID + 1 + p.hiddenCount
 			p.tracksMutex.RUnlock()
 
 			tr := item.(*PlayQueueListRow)
 			if tr.trackID != model.Item.Metadata().ID || tr.ListItemID != itemID {
 				tr.ListItemID = itemID
 			}
-			tr.Update(model, itemID+1)
+			tr.Update(model, trackNum)
 		},
 	)
 	p.list.OnDragBegin = func(id int) {
@@ -113,32 +122,105 @@ func NewPlayQueueList(im *backend.ImageManager, useNonQueueMenu bool) *PlayQueue
 		}
 	}
 	p.list.OnDragEnd = func(dragged, insertPos int) {
-		if p.OnReorderItems != nil {
-			p.OnReorderItems(p.selectedIdxs(), insertPos)
+		if p.OnReorderItems == nil {
+			return
 		}
+		p.tracksMutex.RLock()
+		idxs := p.selectedQueueIdxsLocked()
+		insertPos += p.hiddenCount
+		if p.hidePlayed && p.nowPlayingIdx >= 0 && p.nowPlayingIdx < len(p.allItems) {
+			// dropping above the playing track would move the dragged
+			// tracks into the hidden, already-played part of the queue
+			insertPos = max(insertPos, p.nowPlayingIdx+1)
+		}
+		p.tracksMutex.RUnlock()
+		p.OnReorderItems(idxs, insertPos)
 	}
 
 	return p
 }
 
-func (p *PlayQueueList) SetTracks(trs []*mediaprovider.Track) {
+// SetQueue sets the play queue to display, along with the index of the currently
+// playing item (-1 if none). If SetHidePlayed(true) was called, the already-played
+// items before the playing one are not displayed; indexes reported to the
+// OnPlayItemAt, OnRemoveFromQueue and OnReorderItems callbacks are translated
+// back into indexes in the full queue.
+func (p *PlayQueueList) SetQueue(items []mediaprovider.MediaItem, nowPlayingIdx int) {
 	p.tracksMutex.Lock()
-	p.items = util.ToTrackListModels(trs)
-	p.tracksMutex.Unlock()
-	p.Refresh()
-}
-
-func (p *PlayQueueList) SetItems(items []mediaprovider.MediaItem) {
-	p.tracksMutex.Lock()
-	p.items = sharedutil.MapSlice(items, func(item mediaprovider.MediaItem) *util.TrackListModel {
+	p.allItems = sharedutil.MapSlice(items, func(item mediaprovider.MediaItem) *util.TrackListModel {
 		return &util.TrackListModel{Item: item}
 	})
+	p.nowPlayingIdx = nowPlayingIdx
+	p.applyFilterLocked()
 	p.tracksMutex.Unlock()
 	p.Refresh()
 }
 
-func (p *PlayQueueList) Items() []mediaprovider.MediaItem {
-	return sharedutil.MapSlice(p.items, func(item *util.TrackListModel) mediaprovider.MediaItem {
+// SetNowPlayingIndex updates the index of the currently playing item within the
+// queue set by SetQueue.
+func (p *PlayQueueList) SetNowPlayingIndex(nowPlayingIdx int) {
+	p.tracksMutex.Lock()
+	p.nowPlayingIdx = nowPlayingIdx
+	p.tracksMutex.Unlock()
+	p.refilter()
+}
+
+// SetHidePlayed sets whether the already-played items before the playing one are hidden.
+func (p *PlayQueueList) SetHidePlayed(hidePlayed bool) {
+	p.tracksMutex.Lock()
+	p.hidePlayed = hidePlayed
+	p.tracksMutex.Unlock()
+	p.refilter()
+}
+
+func (p *PlayQueueList) refilter() {
+	p.tracksMutex.Lock()
+	prev := p.hiddenCount
+	p.applyFilterLocked()
+	shift := p.hiddenCount - prev
+	p.tracksMutex.Unlock()
+	if shift == 0 {
+		return
+	}
+	// keep the same tracks in view as rows are hidden or revealed above them
+	offset := p.list.GetScrollOffset() - float32(shift)*p.rowPitch()
+	p.Refresh()
+	p.list.ScrollToOffset(offset)
+}
+
+// distance between the tops of adjacent rows, as laid out by widget.List
+func (p *PlayQueueList) rowPitch() float32 {
+	return p.list.CreateItem().MinSize().Height + p.list.Theme().Size(theme.SizeNamePadding)
+}
+
+// caller must hold tracksMutex for writing, and must Refresh afterwards.
+// re-slices the existing models, so the selection of displayed items is kept.
+func (p *PlayQueueList) applyFilterLocked() {
+	p.hiddenCount = 0
+	if p.hidePlayed && p.nowPlayingIdx > 0 && p.nowPlayingIdx < len(p.allItems) {
+		p.hiddenCount = p.nowPlayingIdx
+	}
+	// hidden items can't be acted on, so they mustn't stay selected
+	util.UnselectAllItems(p.allItems[:p.hiddenCount])
+	p.items = p.allItems[p.hiddenCount:]
+}
+
+func (p *PlayQueueList) SetTracks(trs []*mediaprovider.Track) {
+	p.tracksMutex.Lock()
+	p.allItems = util.ToTrackListModels(trs)
+	p.applyFilterLocked()
+	p.tracksMutex.Unlock()
+	p.Refresh()
+}
+
+// Queue returns the full play queue, including any items hidden by the
+// hide-played-tracks filter. The indexes reported to the OnPlayItemAt,
+// OnRemoveFromQueue and OnReorderItems callbacks index into this slice, so it -
+// not the displayed items - is what a handler for those must work against.
+func (p *PlayQueueList) Queue() []mediaprovider.MediaItem {
+	p.tracksMutex.RLock()
+	defer p.tracksMutex.RUnlock()
+	return sharedutil.MapSlice(p.allItems, func(item *util.TrackListModel) mediaprovider.MediaItem {
 		return item.Item
 	})
 }
@@ -177,11 +259,17 @@ func (p *PlayQueueList) Scroll(amount float32) {
 	p.list.ScrollToOffset(p.list.GetScrollOffset() + amount)
 }
 
+func (p *PlayQueueList) ScrollToOffset(offset float32) {
+	p.list.ScrollToOffset(offset)
+}
+
 func (p *PlayQueueList) ScrollToNowPlaying() {
 	idx := slices.IndexFunc(p.items, func(item *util.TrackListModel) bool {
 		return item.Item.Metadata().ID == p.nowPlayingID
 	})
-	p.list.ScrollTo(idx)
+	if idx >= 0 {
+		p.list.ScrollTo(idx)
+	}
 }
 
 func (p *PlayQueueList) Refresh() {
@@ -203,7 +291,7 @@ func (t *PlayQueueList) onArtistTapped(artistID string) {
 
 func (p *PlayQueueList) onPlayTrackAt(idx int) {
 	if p.OnPlayItemAt != nil {
-		p.OnPlayItemAt(idx)
+		p.OnPlayItemAt(idx + p.hiddenItemCount())
 	}
 }
 
@@ -274,7 +362,8 @@ func (p *PlayQueueList) ensureTracksMenu() {
 	if !p.useNonQueueMenu {
 		remove := fyne.NewMenuItem(lang.L("Remove from queue"), func() {
 			if p.OnRemoveFromQueue != nil {
-				p.OnRemoveFromQueue(p.selectedIdxs())
+				idxs := p.selectedQueueIdxs()
+				p.OnRemoveFromQueue(idxs)
 			}
 		})
 		remove.Icon = theme.ContentRemoveIcon()
@@ -320,7 +409,8 @@ func (p *PlayQueueList) ensureRadiosMenu() {
 	}
 	remove := fyne.NewMenuItem(lang.L("Remove from queue"), func() {
 		if p.OnRemoveFromQueue != nil {
-			p.OnRemoveFromQueue(p.selectedIdxs())
+			idxs := p.selectedQueueIdxs()
+			p.OnRemoveFromQueue(idxs)
 		}
 	})
 	remove.Icon = theme.ContentRemoveIcon()
@@ -348,10 +438,29 @@ func (t *PlayQueueList) selectedItemIDs() []string {
 	return util.SelectedItemIDs(t.items)
 }
 
-func (t *PlayQueueList) selectedIdxs() []int {
+// number of leading queue items currently hidden. Any index that crosses into
+// the playback engine must have this added to it.
+func (t *PlayQueueList) hiddenItemCount() int {
 	t.tracksMutex.RLock()
 	defer t.tracksMutex.RUnlock()
-	return util.SelectedIndexes(t.items)
+	return t.hiddenCount
+}
+
+// indexes of the selected rows, translated into indexes in the full play queue.
+// Must be used for any callback whose indexes are interpreted by the playback engine.
+func (t *PlayQueueList) selectedQueueIdxs() []int {
+	t.tracksMutex.RLock()
+	defer t.tracksMutex.RUnlock()
+	return t.selectedQueueIdxsLocked()
+}
+
+// caller must hold tracksMutex
+func (t *PlayQueueList) selectedQueueIdxsLocked() []int {
+	idxs := util.SelectedIndexes(t.items)
+	for i := range idxs {
+		idxs[i] += t.hiddenCount
+	}
+	return idxs
 }
 
 func (p *PlayQueueList) CreateRenderer() fyne.WidgetRenderer {
