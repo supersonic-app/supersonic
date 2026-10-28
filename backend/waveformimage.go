@@ -188,7 +188,7 @@ func (w *WaveformImageGenerator) StartWaveformGeneration(item *mediaprovider.Tra
 
 			path = srv.Addr()
 
-			go srv.Serve()
+			go srv.Serve(ctx)
 			time.Sleep(10 * time.Millisecond) // make sure server has time to come up
 		}
 

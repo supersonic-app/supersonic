@@ -20,7 +20,7 @@ type FileStreamerServer struct {
 
 // NewFileStreamerServer creates a new server but doesn't start it yet.
 func NewFileStreamerServer(path string, isComplete func() bool) (*FileStreamerServer, error) {
-	listener, err := net.Listen("tcp", ":0")
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
 	}
@@ -45,18 +45,22 @@ func (fs *FileStreamerServer) Addr() string {
 	return "http://127.0.0.1:" + port + "/"
 }
 
-// Serve starts serving and waits for a single request to complete.
-func (fs *FileStreamerServer) Serve() error {
+// Serve starts serving and waits for a single request to complete,
+// or for ctx to be canceled if the request never arrives.
+func (fs *FileStreamerServer) Serve(ctx context.Context) error {
 	go func() {
 		_ = fs.server.Serve(fs.listener)
 	}()
 
-	<-fs.done // wait for the handler to finish
+	select {
+	case <-fs.done: // wait for the handler to finish
+	case <-ctx.Done():
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	return fs.server.Shutdown(ctx)
+	return fs.server.Shutdown(shutdownCtx)
 }
 
 // Handler that streams the file using chunked transfer encoding.
