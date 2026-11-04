@@ -61,6 +61,7 @@ type AppConfig struct {
 	ShowSidebar                 bool
 	SidebarWidthFraction        float64
 	SidebarTab                  string
+	HidePlayedQueueTracks       bool
 
 	PreventScreensaverOnNowPlayingPage bool
 
